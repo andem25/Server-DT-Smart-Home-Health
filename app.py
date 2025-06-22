@@ -4,7 +4,7 @@ from flask import Flask
 from pyngrok import ngrok, conf
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from dotenv import load_dotenv
-from src.mqtt.mqtt_service import send_mqtt_message, MqttSubscriber
+from src.services.mqtt.mqtt_service import send_mqtt_message, MqttSubscriber
 import threading
 
 # Load environment variables first
@@ -18,11 +18,11 @@ from config.settings import (
     SERVER_PORT,
     WEBHOOK_PATH,
 )
-from bot.handlers.base_handlers import start_handler, help_handler, echo_handler
-from bot.handlers.calculator_handlers import calc_handler
-from bot.handlers.user_handler import register_handler, login_handler, logout_handler, status_handler
-from bot.routes.webhook_routes import webhook, init_routes
-from bot.handlers.medicine_handlers import (
+from src.application.bot.handlers.base_handlers import start_handler, help_handler, echo_handler
+from src.application.bot.handlers.calculator_handlers import calc_handler
+from src.application.bot.handlers.user_handler import register_handler, login_handler, logout_handler, status_handler
+from src.application.bot.routes.webhook_routes import webhook, init_routes
+from src.application.bot.handlers.medicine_handlers import (
     create_medicine_handler,
     list_my_medicines_handler,
     set_interval_handler,
