@@ -13,10 +13,10 @@ if not TELEGRAM_TOKEN:
 # Ngrok Configuration
 NGROK_TOKEN = os.getenv("NGROK_TOKEN")
 # Rimuovi l'errore se NGROK_TOKEN non è obbligatorio
-# if not NGROK_TOKEN:
-#     print("Warning: NGROK_TOKEN not found in .env file. Ngrok will not be used.")
-# else:
-#     print("NGROK_TOKEN found.")
+if not NGROK_TOKEN:
+    print("Warning: NGROK_TOKEN not found in .env file. Ngrok will not be used.")
+else:
+    print("NGROK_TOKEN found.")
 
 # Server Configuration
 SERVER_HOST = "0.0.0.0"
