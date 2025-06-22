@@ -6,6 +6,12 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from dotenv import load_dotenv
 from src.services.mqtt.mqtt_service import send_mqtt_message, MqttSubscriber
 import threading
+# Aggiungi dopo l'inizializzazione di mqtt_subscriber
+from src.digital_twin.dt_factory import DTFactory
+from src.digital_twin.dt_manager import DTManager
+
+from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler
+from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler
 
 # Load environment variables first
 load_dotenv()
@@ -66,6 +72,12 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("my_medicines", list_my_medicines_handler))
     application.add_handler(CommandHandler("set_interval", set_interval_handler))
     application.add_handler(CommandHandler("regularity", show_regularity_handler))
+    
+    # Digital Twin handlers
+    application.add_handler(CommandHandler("create_dt", create_dt_handler))
+    application.add_handler(CommandHandler("list_dt", list_dt_handler))
+    application.add_handler(CommandHandler("add_dispenser_dt", add_dispenser_to_dt_handler))
+    application.add_handler(CommandHandler("dt_devices", list_dt_devices_handler))
     
     # Echo handler (non-command messages)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_handler))
@@ -155,7 +167,21 @@ def main():
         app.config['DB_SERVICE'] = db_service
         app.config['USER_SERVICE'] = user_service
         app.config['MQTT_SUBSCRIBER'] = mqtt_subscriber
+        dt_factory = DTFactory(db_service, schema_registry)
+        dt_manager = DTManager(dt_factory)
+        
+        # Collega MQTT_SUBSCRIBER con DTFactory
+        mqtt_subscriber.set_dt_factory(dt_factory)
+        
+        # Memorizza nelle configurazioni
+        app.config['DT_FACTORY'] = dt_factory
+        app.config['DT_MANAGER'] = dt_manager
+        application.bot_data['dt_factory'] = dt_factory
+        application.bot_data['dt_manager'] = dt_manager
+        
         app.config["TELEGRAM_LOOP"] = application.telegram_loop
+        
+        
         
         # IMPORTANT: Store services in application.bot_data for Telegram handlers
         application.bot_data['db_service'] = db_service

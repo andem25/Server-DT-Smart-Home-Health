@@ -1,50 +1,99 @@
-# filepath: src\virtualization\templates\dispenser_medicine.yaml
 schemas:
   common_fields:
     _id: str
     type: str
-    user_db_id: str # <-- Nuovo campo per l'ID utente del DB (sostituisce owner_id)
-    # profile: # Rimuovi o commenta la sezione profile se owner_id era l'unico campo
-    #   owner_id: str
+    user_db_id: str
     metadata:
       created_at: datetime
       updated_at: datetime
   entity:
     data:
       name: str
-      interval: str
+      medicine_name: str
+      dosage: str
+      interval: str  # formato "08-20" (dalle 8 alle 20)
+      frequency_per_day: int
+      status: str  # active, empty, error
+      battery_level: int
+      last_refill: datetime
+      next_scheduled: datetime
+      location: str
+      
+      # Door sensor attributes (FR-2)
+      door_status: str  # open, closed
+      last_door_event: datetime
+      door_events:
+        type: list
+        items:
+          type: object
+          properties:
+            status: str  # open, closed
+            timestamp: datetime
+      
+      # Environmental attributes (FR-7)
+      environment:
+        temperature: float
+        humidity: float
+        air_quality: int
+        brightness: int
+        last_updated: datetime
+        
       regularity:
         type: list
         items:
           type: object
           properties:
-            date: str
-            times:
+            date: str  # formato YYYY-MM-DD
+            times: 
               type: list
-              items: str
+              items:
+                type: str  # formato HH:MM
+            completed: bool
+      alerts:
+        type: list
+        items:
+          type: object
+          properties:
+            type: str  # missed_dose, low_battery, empty, door_open, env_alert
+            timestamp: datetime
+            resolved: bool
   validations:
     mandatory_fields:
       root:
         - _id
         - type
-        - user_db_id # <-- Rendi obbligatorio il nuovo campo
+        - user_db_id
       metadata:
         - created_at
         - updated_at
+      data:
+        - name
+        - medicine_name
+        - status
     type_constraints:
-      user_db_id: # <-- Aggiungi vincolo tipo
-         type: str
-      name:
+      status:
         type: str
-        min_length: 1
-        max_length: 100
-      interval:
+        enum: ["active", "empty", "error"]
+      door_status:
         type: str
-        pattern: "^[0-2]?[0-9]-[0-2]?[0-9]$"
-      regularity:
-        type: list
+        enum: ["open", "closed"]
+      battery_level:
+        type: int
+        min: 0
+        max: 100
+      frequency_per_day:
+        type: int
+        min: 1
+        max: 10
     initialization:
-      name: "dispenser"
-      interval: ""
+      status: "active"
+      battery_level: 100
+      door_status: "closed"
+      door_events: []
+      environment:
+        temperature: 21.0
+        humidity: 50.0
+        air_quality: 95
+        brightness: 80
       regularity: []
-      # Non inizializzare user_db_id, deve essere fornito alla creazione
+      alerts: []

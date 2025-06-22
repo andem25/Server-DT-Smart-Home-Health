@@ -7,6 +7,8 @@ from asyncio import run_coroutine_threadsafe
 from flask import current_app
 from src.application.bot.notifications import send_alert_to_user
 
+import json
+from datetime import timedelta
 from config.settings import MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD
 
 BROKER_URL = MQTT_BROKER
@@ -75,6 +77,10 @@ class MqttSubscriber:
         self.thread = None
         self.app = app  # Memorizza il riferimento all'app Flask
         
+    def set_dt_factory(self, dt_factory):
+        """Imposta il riferimento al DTFactory per l'integrazione con i Digital Twin"""
+        self.dt_factory = dt_factory
+        print("MQTT Subscriber: DTFactory collegato con successo")
     def on_message(self, client, userdata, msg):
         """Callback when a message is received"""
         try:
@@ -163,6 +169,79 @@ class MqttSubscriber:
             print(f"MQTT Subscriber: Aggiornata regolarità per {device_id}: {current_date} {current_time}")
         except Exception as e:
             print(f"MQTT Subscriber: Errore nell'aggiornamento della regolarità: {e}")
+
+    def _update_medicine_taken(self, dispenser_id, payload):
+        """Aggiorna lo stato del dispenser quando viene rilevata un'assunzione"""
+        try:
+            # Parsing del payload (potrebbe contenere dettagli sull'assunzione)
+            data = json.loads(payload)
+            taken_time = data.get("time", datetime.now().strftime("%H:%M"))
+
+            # Ottieni il dispenser attuale per accedere ai dati esistenti
+            dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
+            if not dispenser:
+                print(f"Dispenser {dispenser_id} non trovato")
+                return
+
+            # Aggiorna la Digital Replica del dispenser (unica entità)
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            # Verifica se esiste già un'entry per oggi
+            regularity = dispenser.get("data", {}).get("regularity", [])
+            today_entry = next((r for r in regularity if r["date"] == today), None)
+
+            update_operation = {}
+
+            if today_entry:
+                # Trova l'indice dell'entry di oggi
+                today_index = next((i for i, r in enumerate(regularity) if r["date"] == today), None)
+                if today_index is not None:
+                    # Aggiorna l'entry esistente aggiungendo l'orario attuale
+                    update_operation = {
+                        "$push": {f"data.regularity.{today_index}.times": taken_time},
+                        "$set": {"data.next_scheduled": (datetime.now() + timedelta(hours=8)).isoformat()}
+                    }
+            else:
+                # Crea una nuova entry per oggi
+                new_entry = {
+                    "date": today,
+                    "times": [taken_time],
+                    "completed": False
+                }
+                update_operation = {
+                    "$push": {"data.regularity": new_entry},
+                    "$set": {"data.next_scheduled": (datetime.now() + timedelta(hours=8)).isoformat()}
+                }
+
+            # Effettua l'aggiornamento
+            self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
+
+            print(f"Dispenser {dispenser_id}: registrata assunzione alle {taken_time}")
+
+            # Notifica i Digital Twin associati per aggiornare i vari servizi
+            # (es. AdherenceLoggingService)
+            if hasattr(self, 'dt_factory'):
+                # Trova tutti i DT che contengono questa DR
+                dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
+
+                # Esegui i servizi rilevanti su ogni DT
+                for dt_id in dts_with_dispenser:
+                    try:
+                        dt = self.dt_factory.get_dt(dt_id)
+                        # Trova i servizi AdherenceLoggingService e attivali
+                        for service in dt.get("services", []):
+                            if service.get("name") == "AdherenceLoggingService":
+                                # Qui dovresti avere un modo per eseguire un servizio specifico
+                                # Dipende dall'implementazione esatta del tuo sistema
+                                pass
+                    except Exception as e:
+                        print(f"Errore nell'aggiornamento dei servizi DT: {e}")
+        
+        except json.JSONDecodeError:
+            print(f"Payload non valido: {payload}")
+        except Exception as e:
+            print(f"Errore nell'aggiornamento dell'assunzione del medicinale: {e}")
+
 
     def start(self):
         """Avvia il subscriber in un thread separato"""

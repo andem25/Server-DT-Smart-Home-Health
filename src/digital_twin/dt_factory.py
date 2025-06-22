@@ -74,12 +74,20 @@ class DTFactory:
             raise Exception(f"Failed to add Digital Replica: {str(e)}")
 
     def _get_service_module_mapping(self) -> Dict[str, str]:
-        """
-        Returns a mapping of service names to their module paths
-        """
+        """Returns a mapping of service names to their module paths"""
         return {
             "AggregationService": "src.services.analytics",
             "TemperaturePredictionService": "src.services.TemperaturePredictionService",
+            # Nuovi servizi per i requisiti funzionali
+            "MedicationReminderService": "src.services.medication_reminder_service",
+            "DoorEventService": "src.services.door_event_service",
+            "MessageDisplayService": "src.services.message_display_service",
+            "AdherenceLoggingService": "src.services.adherence_logging_service",
+            "IrregularityAlertService": "src.services.irregularity_alert_service",
+            "EmergencyRequestService": "src.services.emergency_request_service",
+            "EnvironmentalMonitoringService": "src.services.environmental_monitoring_service",
+            "ProfileManagementService": "src.services.profile_management_service",
+            "SupervisorInteractionService": "src.services.supervisor_interaction_service"
         }
 
     def add_service(
@@ -152,21 +160,21 @@ class DTFactory:
         except Exception as e:
             raise Exception(f"Failed to get Digital Twin: {str(e)}")
 
-    # def get_dt_by_name(self, name: str) -> Optional[Dict]:
-    #     """
-    #     Get a Digital Twin by name
-    #
-    #     Args:
-    #         name: Digital Twin name
-    #
-    #     Returns:
-    #         Dict: Digital Twin data if found, None otherwise
-    #     """
-    #     try:
-    #         dt_collection = self.db_service.db["digital_twins"]
-    #         return dt_collection.find_one({"name": name})
-    #     except Exception as e:
-    #         raise Exception(f"Failed to get Digital Twin: {str(e)}")
+    def get_dt_by_name(self, name: str) -> Optional[Dict]:
+        """
+        Get a Digital Twin by name
+    
+        Args:
+            name: Digital Twin name
+    
+        Returns:
+            Dict: Digital Twin data if found, None otherwise
+        """
+        try:
+            dt_collection = self.db_service.db["digital_twins"]
+            return dt_collection.find_one({"name": name})
+        except Exception as e:
+            raise Exception(f"Failed to get Digital Twin: {str(e)}")
 
     def list_dts(self) -> List[Dict]:
         """
@@ -181,103 +189,103 @@ class DTFactory:
         except Exception as e:
             raise Exception(f"Failed to list Digital Twins: {str(e)}")
 
-    # def update_dt(self, dt_id: str, update_data: Dict) -> None:
-    #     """
-    #     Update a Digital Twin
-    #
-    #     Args:
-    #         dt_id: Digital Twin ID
-    #         update_data: Data to update
-    #     """
-    #     try:
-    #         dt_collection = self.db_service.db["digital_twins"]
-    #
-    #         # Ensure metadata.updated_at is set
-    #         if "metadata" not in update_data:
-    #             update_data["metadata"] = {}
-    #         update_data["metadata"]["updated_at"] = datetime.utcnow()
-    #
-    #         result = dt_collection.update_one(
-    #             {"_id": dt_id},
-    #             {"$set": update_data}
-    #         )
-    #
-    #         if result.matched_count == 0:
-    #             raise ValueError(f"Digital Twin not found: {dt_id}")
-    #
-    #     except Exception as e:
-    #         raise Exception(f"Failed to update Digital Twin: {str(e)}")
+    def update_dt(self, dt_id: str, update_data: Dict) -> None:
+        """
+        Update a Digital Twin
+    
+        Args:
+            dt_id: Digital Twin ID
+            update_data: Data to update
+        """
+        try:
+            dt_collection = self.db_service.db["digital_twins"]
+    
+            # Ensure metadata.updated_at is set
+            if "metadata" not in update_data:
+                update_data["metadata"] = {}
+            update_data["metadata"]["updated_at"] = datetime.utcnow()
+    
+            result = dt_collection.update_one(
+                {"_id": dt_id},
+                {"$set": update_data}
+            )
+    
+            if result.matched_count == 0:
+                raise ValueError(f"Digital Twin not found: {dt_id}")
+    
+        except Exception as e:
+            raise Exception(f"Failed to update Digital Twin: {str(e)}")
 
-    # def delete_dt(self, dt_id: str) -> None:
-    #     """
-    #     Delete a Digital Twin
-    #
-    #     Args:
-    #         dt_id: Digital Twin ID
-    #     """
-    #     try:
-    #         dt_collection = self.db_service.db["digital_twins"]
-    #         result = dt_collection.delete_one({"_id": dt_id})
-    #
-    #         if result.deleted_count == 0:
-    #             raise ValueError(f"Digital Twin not found: {dt_id}")
-    #
-    #     except Exception as e:
-    #         raise Exception(f"Failed to delete Digital Twin: {str(e)}")
+    def delete_dt(self, dt_id: str) -> None:
+        """
+        Delete a Digital Twin
+    
+        Args:
+            dt_id: Digital Twin ID
+        """
+        try:
+            dt_collection = self.db_service.db["digital_twins"]
+            result = dt_collection.delete_one({"_id": dt_id})
+    
+            if result.deleted_count == 0:
+                raise ValueError(f"Digital Twin not found: {dt_id}")
+    
+        except Exception as e:
+            raise Exception(f"Failed to delete Digital Twin: {str(e)}")
 
-    # def remove_digital_replica(self, dt_id: str, dr_id: str) -> None:
-    #     """
-    #     Remove a Digital Replica reference from a Digital Twin
-    #
-    #     Args:
-    #         dt_id: Digital Twin ID
-    #         dr_id: Digital Replica ID
-    #     """
-    #     try:
-    #         dt_collection = self.db_service.db["digital_twins"]
-    #
-    #         dt_collection.update_one(
-    #             {"_id": dt_id},
-    #             {
-    #                 "$pull": {
-    #                     "digital_replicas": {
-    #                         "id": dr_id
-    #                     }
-    #                 },
-    #                 "$set": {
-    #                     "metadata.updated_at": datetime.utcnow()
-    #                 }
-    #             }
-    #         )
-    #     except Exception as e:
-    #         raise Exception(f"Failed to remove Digital Replica: {str(e)}")
+    def remove_digital_replica(self, dt_id: str, dr_id: str) -> None:
+        """
+        Remove a Digital Replica reference from a Digital Twin
+    
+        Args:
+            dt_id: Digital Twin ID
+            dr_id: Digital Replica ID
+        """
+        try:
+            dt_collection = self.db_service.db["digital_twins"]
+    
+            dt_collection.update_one(
+                {"_id": dt_id},
+                {
+                    "$pull": {
+                        "digital_replicas": {
+                            "id": dr_id
+                        }
+                    },
+                    "$set": {
+                        "metadata.updated_at": datetime.utcnow()
+                    }
+                }
+            )
+        except Exception as e:
+            raise Exception(f"Failed to remove Digital Replica: {str(e)}")
 
-    # def remove_service(self, dt_id: str, service_name: str) -> None:
-    #     """
-    #     Remove a service reference from a Digital Twin
-    #
-    #     Args:
-    #         dt_id: Digital Twin ID
-    #         service_name: Name of the service to remove
-    #     """
-    #     try:
-    #         dt_collection = self.db_service.db["digital_twins"]
-    #
-    #         dt_collection.update_one(
-    #             {"_id": dt_id},
-    #             {
-    #                 "$pull": {
-    #                     "services": {
-    #                         "name": service_name
-    #                     }
-    #                 },
-    #                 "$set": {
-    #                     "metadata.updated_at": datetime.utcnow()
-    #                 }
-    #             }
-    #         )
-    #     except Exception as e:
-    #         raise Exception(f"Failed to remove service: {str(e)}")
+    def remove_service(self, dt_id: str, service_name: str) -> None:
+        """
+        Remove a service reference from a Digital Twin
+    
+        Args:
+            dt_id: Digital Twin ID
+            service_name: Name of the service to remove
+        """
+        try:
+            dt_collection = self.db_service.db["digital_twins"]
+    
+            dt_collection.update_one(
+                {"_id": dt_id},
+                {
+                    "$pull": {
+                        "services": {
+                            "name": service_name
+                        }
+                    },
+                    "$set": {
+                        "metadata.updated_at": datetime.utcnow()
+                    }
+                }
+            )
+        except Exception as e:
+            raise Exception(f"Failed to remove service: {str(e)}")
 
     def _init_dt_collection(self) -> None:
         """Initialize the Digital Twin collection in MongoDB"""
