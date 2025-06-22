@@ -97,7 +97,7 @@ def main():
     # Inizializza prima l'applicazione
     loop.run_until_complete(application.initialize())
     
-    # Poi configura gli handlers
+    # Poi configura gli handlerss
     setup_handlers(application)
     
     webhook_url = None
