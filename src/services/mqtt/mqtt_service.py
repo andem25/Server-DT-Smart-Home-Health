@@ -7,10 +7,12 @@ from asyncio import run_coroutine_threadsafe
 from flask import current_app
 from src.application.bot.notifications import send_alert_to_user
 
-BROKER_URL = "f1d601b5c9184556910bdc2b4e6dfe17.s1.eu.hivemq.cloud"
-BROKER_PORT = 8883
-MQTT_USERNAME = "test0"
-MQTT_PASSWORD = "Prova12345"
+from config.settings import MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD
+
+BROKER_URL = MQTT_BROKER
+BROKER_PORT = MQTT_PORT
+MQTT_USERNAME = MQTT_USERNAME
+MQTT_PASSWORD = MQTT_PASSWORD
 
 
 

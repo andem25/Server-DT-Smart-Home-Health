@@ -18,6 +18,12 @@ if not NGROK_TOKEN:
 else:
     print("NGROK_TOKEN found.")
 
+MQTT_BROKER = os.getenv("MQTT_BROKER", "f1d601b5c9184556910bdc2b4e6dfe17.s1.eu.hivemq.cloud")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "test0")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "Prova12345")
+
+
 # Server Configuration
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 88

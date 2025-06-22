@@ -1,17 +1,18 @@
-# Rimuovi 'import uuid' se non lo usi più altrove
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.virtualization.digital_replica.dr_factory import DRFactory
-# Rimuovi 'from flask import current_app' se non serve più
 from flask import current_app
 import asyncio
 from datetime import datetime
 import ssl
 import re
-from src.services.database_service import DatabaseService # Importa per type hinting (opzionale ma buono)
-# from src.services.mqtt.mqtt_service import mqtt  # Importiamo il client mqtt
+from src.services.database_service import DatabaseService
 import paho.mqtt.client as mqtt
 import ssl
+
+
+
+
 # --- Crea un nuovo dispenser di medicine con ID fornito dall'utente ---
 async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Crea un nuovo dispenser associato all'utente loggato, usando un ID fornito dall'utente."""
@@ -70,17 +71,21 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
                 print(f"Errore nella gestione del messaggio MQTT: {e}")
     
     # Configura il client MQTT temporaneo per questa operazione
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
-    client.username_pw_set("test0", "Prova12345")
-    client.tls_set(cert_reqs=ssl.CERT_NONE)
-    client.tls_insecure_set(True)
-    client.on_message = on_mqtt_message
+    mqtt_subscriber = current_app.config.get('MQTT_SUBSCRIBER')
     
     try:
-        # Connetti e sottoscrivi
-        client.connect("f1d601b5c9184556910bdc2b4e6dfe17.s1.eu.hivemq.cloud", 8883, 60)
-        client.subscribe(f"{dispenser_id}/assoc")
-        client.loop_start()
+        # Verifica che il client MQTT interno sia inizializzato
+        if not mqtt_subscriber.client:
+            await update.message.reply_text("❌ Client MQTT non inizializzato. Impossibile procedere.")
+            return
+            
+        # Associa la callback per la gestione dei messaggi
+        mqtt_subscriber.client.on_message = on_mqtt_message
+        
+        # Sottoscrivi al topic corretto
+        mqtt_subscriber.client.subscribe(f"{dispenser_id}/assoc")
+        
+        # Il loop è già avviato nel MqttSubscriber, non serve chiamare loop_start
         
         # Aspetta il messaggio MQTT per 30 secondi
         try:
@@ -95,9 +100,14 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text(f"⏱️ Timeout: nessuna conferma ricevuta dal dispenser entro 30 secondi. Operazione annullata.")
             return
     finally:
-        # Pulisci le risorse MQTT
-        client.loop_stop()
-        client.disconnect()
+        # Ripristina la gestione messaggi originale e annulla la sottoscrizione
+        if mqtt_subscriber and mqtt_subscriber.client:
+            # Ripristina l'handler originale
+            mqtt_subscriber.client.on_message = mqtt_subscriber.on_message
+            
+            # Annulla la sottoscrizione
+            mqtt_subscriber.client.unsubscribe(f"{dispenser_id}/assoc")
+            # Non fermiamo il loop perché è gestito dalla classe MqttSubscriber
     
     # Se siamo qui, significa che abbiamo ricevuto "1" dal topic
     await update.message.reply_text(f"✅ Confermato! Associazione con il dispenser riuscita.")

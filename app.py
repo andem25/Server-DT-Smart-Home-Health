@@ -19,7 +19,6 @@ from config.settings import (
     WEBHOOK_PATH,
 )
 from src.application.bot.handlers.base_handlers import start_handler, help_handler, echo_handler
-from src.application.bot.handlers.calculator_handlers import calc_handler
 from src.application.bot.handlers.user_handler import register_handler, login_handler, logout_handler, status_handler
 from src.application.bot.routes.webhook_routes import webhook, init_routes
 from src.application.bot.handlers.medicine_handlers import (
@@ -55,7 +54,6 @@ def setup_handlers(application):
     # Base handlers
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("help", help_handler))
-    application.add_handler(CommandHandler("calc", calc_handler))
     
     # User management handlers
     application.add_handler(CommandHandler("register", register_handler))
