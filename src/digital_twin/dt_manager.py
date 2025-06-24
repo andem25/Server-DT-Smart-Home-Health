@@ -33,8 +33,8 @@ class DTManager:
             device_id: ID del dispositivo da collegare
         """
         try:
-            # Ottieni informazioni sul dispositivo
-            device = self.dt_factory.db_service.query_dr(dr_type, device_id)
+            # Ottieni informazioni sul dispositivo - CORREZIONE: il metodo si chiama get_dr
+            device = self.dt_factory.db_service.get_dr(dr_type, device_id)
             if not device:
                 raise ValueError(f"Dispositivo {device_id} non trovato nel database")
                 
@@ -47,12 +47,13 @@ class DTManager:
             print(f"Errore nel collegamento del dispositivo {device_id} al DT {dt_id}: {e}")
             raise
     
-    def create_dispenser(self, user_id: str, medicine_name: str, dosage: str = "", interval: str = "08-20", frequency: int = 1) -> str:
+    def create_dispenser(self, user_id: str, dt_id: str, medicine_name: str, dosage: str = "", interval: str = "08-20", frequency: int = 1) -> str:
         """
         Crea un nuovo dispenser di medicinali e restituisce il suo ID
 
         Args:
             user_id: ID dell'utente proprietario
+            dt_id: ID del Digital Twin a cui associare il dispenser
             medicine_name: Nome del medicinale
             dosage: Dosaggio (es. "10mg")
             interval: Intervallo orario (formato "08-20")
@@ -66,6 +67,7 @@ class DTManager:
             dispenser_data = {
                 "type": "dispenser_medicine",
                 "user_db_id": user_id,
+                "dt_id": dt_id,
                 "data": {
                     "name": f"Dispenser - {medicine_name}",
                     "medicine_name": medicine_name,
@@ -81,8 +83,8 @@ class DTManager:
                 }
             }
 
-            # Crea la DR nel database
-            dr_id = self.dt_factory.db_service.create_dr("dispenser_medicine", dispenser_data)
+            # Crea la DR nel database - CORREZIONE: il metodo si chiama save_dr
+            dr_id = self.dt_factory.db_service.save_dr("dispenser_medicine", dispenser_data)
             return dr_id
         except Exception as e:
             print(f"Errore nella creazione del dispenser: {e}")
