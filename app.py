@@ -12,6 +12,7 @@ from src.digital_twin.dt_manager import DTManager
 
 from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler
 from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler, check_irregularities_handler
+from src.application.bot.handlers.message_handlers import send_message_to_dispenser_handler
 
 # Load environment variables first
 load_dotenv()
@@ -74,6 +75,9 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("set_interval", set_interval_handler))
     application.add_handler(CommandHandler("regularity", show_regularity_handler))
     application.add_handler(CommandHandler("adherence_week", show_weekly_adherence_handler))
+    
+    # Nuovo handler per l'invio di messaggi
+    application.add_handler(CommandHandler("send_message", send_message_to_dispenser_handler))
     
     # Digital Twin handlers
     application.add_handler(CommandHandler("create_dt", create_dt_handler))

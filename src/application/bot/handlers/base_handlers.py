@@ -34,7 +34,8 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text += "• `/add_medicine <id_univoco> <nome>` - Registra un nuovo dispenser\n"
         help_text += "• `/my_medicines` - Mostra tutti i tuoi dispenser registrati\n"
         help_text += "• `/set_interval <id_dispenser> <intervallo>` - Imposta l'intervallo di assunzione (es. 08-20)\n"
-        help_text += "• `/regularity <id_dispenser>` - Mostra lo storico assunzioni per un dispenser\n\n"
+        help_text += "• `/regularity <id_dispenser>` - Mostra lo storico assunzioni per un dispenser\n"
+        help_text += "• `/send_message <id_dispenser> <messaggio>` - Invia un messaggio al dispenser\n\n"
         
         help_text += "\n*🤖 GESTIONE DIGITAL TWIN*\n"
         help_text += "• `/create_dt <nome> [descrizione]` - Crea un nuovo Digital Twin completo\n"
