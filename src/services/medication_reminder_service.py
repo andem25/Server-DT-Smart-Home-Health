@@ -40,11 +40,11 @@ class MedicationReminderService(BaseService):
     
     def _check_dispenser_needs_reminder(self, dispenser):
         """Verifica se è necessario inviare un promemoria per questo dispenser"""
-        # Estrai i dati rilevanti dal dispenser (unica DR)
+        # Accesso sicuro ai dati
         dispenser_data = dispenser.get("data", {})
         medicine_name = dispenser_data.get("medicine_name", "medicinale")
-        interval_str = dispenser_data.get("interval")
-        status = dispenser_data.get("status")
+        interval_str = dispenser_data.get("interval", "")
+        status = dispenser_data.get("status", "")
         frequency = dispenser_data.get("frequency_per_day", 1)
         
         # Se il dispenser è vuoto o in errore, non inviare promemoria

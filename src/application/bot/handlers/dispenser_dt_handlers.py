@@ -1,6 +1,9 @@
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from datetime import datetime
+from flask import current_app
+
 
 async def add_dispenser_to_dt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Collega un dispenser di medicinali esistente a un Digital Twin."""
@@ -114,7 +117,7 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
             # Ottieni dettagli aggiuntivi per i dispenser
             if device_type == 'dispenser_medicine':
                 try:
-                    dispenser = dt_factory.db_service.query_dr('dispenser_medicine', device_id)
+                    dispenser = dt_factory.db_service.get_dr('dispenser_medicine', device_id)
                     if dispenser:
                         medicine_data = dispenser.get('data', {})
                         medicine_name = medicine_data.get('medicine_name', 'Nome sconosciuto')
@@ -149,3 +152,62 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante il recupero dei dispositivi: {str(e)}")
         print(f"Errore in list_dt_devices_handler: {e}")
+        
+        
+        
+async def check_irregularities_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Esegue il servizio di controllo irregolarità su TUTTI i DT dell'utente 
+    e notifica i risultati.
+    """
+    user_db_id = context.user_data.get('user_db_id')
+    if not user_db_id:
+        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
+        return
+
+    dt_factory = context.application.bot_data['dt_factory']
+    db_service = context.application.bot_data['db_service']
+
+    try:
+        # --- INIZIO MODIFICA CRUCIALE ---
+        # Accediamo alla collezione dei DT direttamente, come fa /list_dt
+        user_dt_docs = db_service.query_drs("digital_twins", {"metadata.user_id": user_db_id})
+        if not user_dt_docs:
+            await update.message.reply_text("ℹ️ Non hai Digital Twin registrati. Creane uno con `/create_dt <nome>`.")
+            return
+        # --- FINE MODIFICA CRUCIALE ---
+        
+        await update.message.reply_text(f"🔍 Eseguo il controllo delle irregolarità su {len(user_dt_docs)} Digital Twin...")
+
+        all_alerts_messages = []
+
+        for dt_doc in user_dt_docs:
+            dt_id = str(dt_doc["_id"])
+            dt_name = dt_doc.get("name", "DT senza nome")
+            
+            dt_instance = dt_factory.get_dt_instance(dt_id)
+            if not dt_instance:
+                all_alerts_messages.append(f"⚠️ Errore nel caricamento del DT '{dt_name}'.")
+                continue
+
+            alerts = dt_instance.execute_service("IrregularityAlertService")
+            
+            if alerts and any(alert_list for alert_list in alerts.values()):
+                dt_alert_message = f"🚨 *Alert per DT '{dt_name}':*\n"
+                door_alerts = alerts.get("door_alerts", [])
+                if door_alerts:
+                    dt_alert_message += "  🚪 *Porte aperte da troppo tempo:*\n"
+                    for alert in door_alerts:
+                        dt_alert_message += f"    - Dispenser: *{alert['dispenser_name']}* ({alert['minutes_open']} min)\n"
+                
+                all_alerts_messages.append(dt_alert_message)
+
+        if not all_alerts_messages:
+            await update.message.reply_text("✅ Nessuna irregolarità rilevata. Tutto in ordine!")
+        else:
+            final_message = "⚠️ Riepilogo irregolarità:\n\n" + "\n".join(all_alerts_messages)
+            await update.message.reply_text(final_message, parse_mode=ParseMode.MARKDOWN)
+
+    except Exception as e:
+        print(f"Errore in check_irregularities_handler: {e}")
+        await update.message.reply_text("Si è verificato un errore critico durante il controllo.")

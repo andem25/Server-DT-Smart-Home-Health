@@ -49,15 +49,24 @@ class DatabaseService:
         except Exception as e:
             raise Exception(f"Failed to save Digital Replica: {str(e)}")
 
-    def get_dr(self, dr_type: str, dr_id: str) -> Optional[Dict]:
+    def get_dr(self, dr_type: str, dr_id: str) -> Dict:
+        """
+        Retrieves a Digital Replica by type and ID
+        """
         if not self.is_connected():
             raise ConnectionError("Not connected to MongoDB")
 
         try:
+            print(f"DEBUG: Retrieving DR type={dr_type}, id={dr_id}")  # Aggiungi questa linea per il debug
             collection_name = self.schema_registry.get_collection_name(dr_type)
-            return self.db[collection_name].find_one({"_id": dr_id})
+            collection = self.db[collection_name]
+            result = collection.find_one({"_id": dr_id})
+            if result:
+                return result
+            return None
         except Exception as e:
-            raise Exception(f"Failed to get Digital Replica: {str(e)}")
+            print(f"ERROR in get_dr: {e}")  # Aggiungi questa linea per il debug
+            raise
 
     def query_drs(self, dr_type: str, query: Dict = None) -> List[Dict]:
         if not self.is_connected():

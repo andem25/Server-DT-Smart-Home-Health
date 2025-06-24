@@ -113,14 +113,131 @@ class MqttSubscriber:
             print(f"MQTT Subscriber: Errore nell'elaborazione del messaggio: {e}")
 
     def on_connect(self, client, userdata, flags, rc):
-        """Callback when connected to the MQTT broker"""
-        if rc == 0:
-            print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
-            # Sottoscrivi a tutti i topic che terminano con /taken
-            client.subscribe("+/taken")
-            print("MQTT Subscriber: Sottoscritto ai topic */taken")
-        else:
-            print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
+            """Callback when connected to the MQTT broker"""
+            if rc == 0:
+                print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
+                # Sottoscrivi a tutti i topic che terminano con /taken
+                client.subscribe("+/taken")
+                print("MQTT Subscriber: Sottoscritto ai topic */taken")
+                # --- NUOVA SOTTOSCRIZIONE PER LE PORTE ---
+                client.subscribe("+/door/status")
+                print("MQTT Subscriber: Sottoscritto ai topic */door/status")
+            else:
+                print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
+
+    def on_message(self, client, userdata, msg):
+        """Callback when a message is received"""
+        try:
+            topic = msg.topic
+            payload = msg.payload.decode('utf-8').strip().lower() # Normalizza il payload
+            
+            # Estrai l'ID del dispositivo dal topic
+            device_id = topic.split('/')[0]
+            topic_suffix = "/".join(topic.split('/')[1:])
+
+            print(f"MQTT: Ricevuto '{payload}' sul topic '{topic}', ID dispositivo: {device_id}")
+
+            # Gestione assunzione medicinale
+            if topic_suffix == "taken" and payload == "1":
+                # La logica esistente per l'assunzione va qui...
+                if self.app:
+                     with self.app.app_context():
+                        if "TELEGRAM_LOOP" in current_app.config:
+                            loop = current_app.config["TELEGRAM_LOOP"]
+                            if loop and loop.is_running():
+                                run_coroutine_threadsafe(
+                                    send_alert_to_user(157933243, "poba", 666.0),
+                                    loop)
+                        self._update_regularity(device_id)
+                else:
+                    self._update_regularity(device_id)
+
+            # --- NUOVA GESTIONE PER LO STATO DELLA PORTA ---
+            elif topic_suffix == "door/status":
+                if payload in ["open", "closed"]:
+                    self._update_door_status(device_id, payload)
+                else:
+                    print(f"MQTT Subscriber: Payload non valido per stato porta: '{payload}'")
+            
+            # Puoi aggiungere altri 'elif' per gestire altri topic
+                
+        except Exception as e:
+            print(f"MQTT Subscriber: Errore nell'elaborazione del messaggio: {e}")
+            
+    def _process_message(self, client, userdata, msg):
+        """Elabora i messaggi MQTT ricevuti."""
+        try:
+            topic = msg.topic
+            payload = json.loads(msg.payload.decode())
+            
+            # Gestione eventi porta
+            if topic.startswith("dispenser/") and topic.endswith("/door"):
+                try:
+                    dispenser_id = topic.split("/")[1]
+                    state = payload.get("state", "unknown")
+                    
+                    if state in ["open", "closed"]:
+                        timestamp = datetime.now()
+                        
+                        # Aggiorna il documento nel database
+                        update_operation = {
+                            "$set": {
+                                "data.door_status": state,
+                                "data.last_door_event": timestamp.isoformat()
+                            }
+                        }
+                        self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
+                        
+                        # Notifica i Digital Twin collegati
+                        if hasattr(self, 'dt_factory'):
+                            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
+                            for dt_id in dts_with_dispenser:
+                                dt = self.dt_factory.get_dt_instance(dt_id)
+                                if dt:
+                                    door_service = dt.get_service("DoorEventService")
+                                    if door_service:
+                                        door_service.door_state_changed(dispenser_id, state, timestamp)
+                        
+                        print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')}")
+                except Exception as e:
+                    print(f"Errore nella gestione evento porta: {e}")
+            
+        except Exception as e:
+            print(f"Errore nell'elaborazione del messaggio MQTT: {e}")
+
+    def _update_door_status(self, dispenser_id, payload):
+        """Aggiorna lo stato della porta del dispenser."""
+        try:
+            # Ottieni lo stato corrente dal payload
+            state = payload.get("state")  # "open" o "closed"
+            timestamp = datetime.now()
+            
+            # Aggiorna il documento nel database
+            update_operation = {
+                "$set": {
+                    "data.door_status": state,
+                    "data.last_door_event": timestamp.isoformat()
+                }
+            }
+            self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
+            
+            print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')}")
+            
+            # Notifica i Digital Twin collegati
+            if hasattr(self, 'dt_factory'):
+                # Trova tutti i DT che contengono questa DR
+                dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
+                
+                for dt_id in dts_with_dispenser:
+                    dt = self.dt_factory.get_dt_instance(dt_id)
+                    if dt:
+                        # Ottieni e notifica il servizio DoorEventService se esiste
+                        door_service = dt.get_service("DoorEventService")
+                        if door_service:
+                            door_service.door_state_changed(dispenser_id, state, timestamp)
+                            
+        except Exception as e:
+            print(f"Errore nell'aggiornamento dello stato porta per dispenser {dispenser_id}: {e}")
 
 
     def _update_regularity(self, device_id):

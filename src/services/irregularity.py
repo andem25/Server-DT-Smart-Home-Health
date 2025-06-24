@@ -10,7 +10,7 @@ class IrregularityAlertService(BaseService):
     
     def configure(self, config):
         self.missed_doses_threshold = config.get("missed_doses_threshold", 2)
-        self.door_open_alert_time = config.get("door_open_alert_time", 30)  # minuti
+        self.door_open_alert_time = config.get("door_open_alert_time", 1)  # minuti
         self.env_min_temperature = config.get("min_temperature", 18)
         self.env_max_temperature = config.get("max_temperature", 30)
         return self
@@ -59,30 +59,43 @@ class IrregularityAlertService(BaseService):
         return alerts
     
     def _check_door_status(self, dt_data):
-        """Verifica se ci sono porte rimaste aperte troppo a lungo"""
+        """Verifica se ci sono porte di dispenser rimaste aperte troppo a lungo."""
         alerts = []
-        doors = [dr for dr in dt_data.get("digital_replicas", []) if dr.get("type") == "door_sensor"]
+        # Cerca tra tutti i dispenser
+        dispensers = [dr for dr in dt_data.get("digital_replicas", []) if dr.get("type") == "dispenser_medicine"]
         
-        for door in doors:
-            status = door.get("data", {}).get("status")
-            last_change = door.get("data", {}).get("last_change")
-            
-            if status == "open" and last_change:
-                # Calcola quanto tempo è rimasta aperta la porta
-                last_change_dt = last_change if isinstance(last_change, datetime) else datetime.fromisoformat(last_change)
-                minutes_open = (datetime.now() - last_change_dt).total_seconds() / 60
-                
-                if minutes_open > self.door_open_alert_time:
-                    alerts.append({
-                        "type": "door_open_too_long",
-                        "door_id": door.get("_id"),
-                        "door_name": door.get("data", {}).get("name", "porta"),
-                        "location": door.get("data", {}).get("location", "sconosciuta"),
-                        "minutes_open": round(minutes_open),
-                        "severity": "medium",
-                        "timestamp": datetime.now()
-                    })
-        
+        now = datetime.now()
+
+        for dispenser in dispensers:
+            dispenser_data = dispenser.get("data", {})
+            door_status = dispenser_data.get("door_status")
+            last_event_time_str = dispenser_data.get("last_door_event")
+
+            # Controlla solo se la porta è aperta e se abbiamo un timestamp valido
+            if door_status == "open" and last_event_time_str:
+                try:
+                    # Converte il timestamp in oggetto datetime
+                    if isinstance(last_event_time_str, str):
+                        last_event_time = datetime.fromisoformat(last_event_time_str)
+                    else:
+                        last_event_time = last_event_time_str
+                    
+                    # Calcola da quanti minuti è aperta
+                    minutes_open = (now - last_event_time).total_seconds() / 60
+                    
+                    if minutes_open > self.door_open_alert_time:
+                        alerts.append({
+                            "type": "door_open_too_long",
+                            "dispenser_id": dispenser.get("_id"),
+                            "dispenser_name": dispenser_data.get("name", "dispenser"),
+                            "location": dispenser_data.get("location", "sconosciuta"),
+                            "minutes_open": round(minutes_open),
+                            "severity": "medium", 
+                            "timestamp": now.isoformat()
+                        })
+                except Exception as e:
+                    print(f"Errore nel controllo porta {dispenser.get('_id')}: {e}")
+
         return alerts
     
     def _check_environmental_conditions(self, dt_data):

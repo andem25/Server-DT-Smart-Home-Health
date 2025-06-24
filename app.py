@@ -11,7 +11,7 @@ from src.digital_twin.dt_factory import DTFactory
 from src.digital_twin.dt_manager import DTManager
 
 from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler
-from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler
+from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler, check_irregularities_handler
 
 # Load environment variables first
 load_dotenv()
@@ -32,6 +32,7 @@ from src.application.bot.handlers.medicine_handlers import (
     list_my_medicines_handler,
     set_interval_handler,
     show_regularity_handler,
+    show_weekly_adherence_handler,  # Import the new handler
 )
 
 from src.services.database_service import DatabaseService 
@@ -72,12 +73,14 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("my_medicines", list_my_medicines_handler))
     application.add_handler(CommandHandler("set_interval", set_interval_handler))
     application.add_handler(CommandHandler("regularity", show_regularity_handler))
+    application.add_handler(CommandHandler("adherence_week", show_weekly_adherence_handler))
     
     # Digital Twin handlers
     application.add_handler(CommandHandler("create_dt", create_dt_handler))
     application.add_handler(CommandHandler("list_dt", list_dt_handler))
     application.add_handler(CommandHandler("add_dispenser_dt", add_dispenser_to_dt_handler))
     application.add_handler(CommandHandler("dt_devices", list_dt_devices_handler))
+    application.add_handler(CommandHandler("check_alerts", check_irregularities_handler))
     
     # Echo handler (non-command messages)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_handler))
@@ -97,13 +100,11 @@ def main():
     
     # Initialize bot application with persistence (RIMUOVI LA DUPLICAZIONE)
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    application.loop = loop  # Store loop reference for webhook routes
+    # Utilizziamo un solo loop principale per tutte le operazioni
+    application.loop = loop
     
     
         
-    application.telegram_loop = asyncio.new_event_loop()
-    
-    
     # Inizializza prima l'applicazione
     loop.run_until_complete(application.initialize())
     
@@ -179,18 +180,10 @@ def main():
         application.bot_data['dt_factory'] = dt_factory
         application.bot_data['dt_manager'] = dt_manager
         
-        app.config["TELEGRAM_LOOP"] = application.telegram_loop
-        
-        
-        
-        # IMPORTANT: Store services in application.bot_data for Telegram handlers
+        # Memorizza configurazioni in modo coerente e rimuovi il doppio loop
         application.bot_data['db_service'] = db_service
         application.bot_data['user_service'] = user_service
         application.bot_data['schema_registry'] = schema_registry
-        threading.Thread(target=application.telegram_loop.run_forever, daemon=True).start()
-        
-        app.config['TELEGRAM_BOT'] = application.bot
-        print(f"🚀 Loop Telegram INSIDE attivo? {application.telegram_loop.is_running()}")
 
         
     

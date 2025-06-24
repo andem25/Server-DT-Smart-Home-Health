@@ -20,7 +20,8 @@ class DTManager:
         self.dt_factory.add_service(dt_id, "AlertService", {"threshold": 2})
         self.dt_factory.add_service(dt_id, "LoggingService")
         self.dt_factory.add_service(dt_id, "EmergencyService", {"contacts": ["supervisor"]})
-        
+        self.dt_factory.add_service(dt_id, "IrregularityAlertService")
+
         return dt_id
     
     def register_device(self, dt_id: str, dr_type: str, device_id: str) -> None:
@@ -63,7 +64,7 @@ class DTManager:
             str: ID della Digital Replica creata
         """
         try:
-            # Crea la Digital Replica del dispenser (entità unica)
+            # Struttura standardizzata del dispenser
             dispenser_data = {
                 "type": "dispenser_medicine",
                 "user_db_id": user_id,
@@ -75,6 +76,7 @@ class DTManager:
                     "interval": interval,
                     "frequency_per_day": frequency,
                     "status": "active",
+                    "door_status": "closed",  # Aggiungi questo campo sempre
                     "battery_level": 100,
                     "last_refill": datetime.now().isoformat(),
                     "location": "Casa",

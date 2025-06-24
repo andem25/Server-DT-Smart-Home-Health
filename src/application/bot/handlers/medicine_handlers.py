@@ -1,14 +1,16 @@
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from src.virtualization.digital_replica.dr_factory import DRFactory
 from flask import current_app
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import ssl
 import re
 from src.services.database_service import DatabaseService
 import paho.mqtt.client as mqtt
 import ssl
+
 
 
 
@@ -227,7 +229,7 @@ async def show_regularity_handler(update: Update, context: ContextTypes.DEFAULT_
         return
 
     if len(context.args) < 1:
-        await update.message.reply_text("❗ Usa: /show_regularity <dispenser_id>\n(Trovi il <dispenser_id> con /list_my_medicines)")
+        await update.message.reply_text("❗ Usa: /show_regolarity <dispenser_id>\n(Trovi il <dispenser_id> con /list_my_medicines)")
         return
 
     dispenser_id = context.args[0]
@@ -271,3 +273,138 @@ async def show_regularity_handler(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante il recupero della regolarità: {e}")
         print(f"Errore in show_regolarity_handler: {e}")
+
+
+# --- Mostra l'aderenza settimanale con tick e X per ogni dispenser ---
+async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra l'aderenza settimanale ai medicinali per i dispensatori collegati a un Digital Twin specifico."""
+    user_db_id = context.user_data.get('user_db_id')
+    if not user_db_id:
+        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
+        return
+    
+    # Verifica che l'ID DT sia fornito
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "❗ Uso: /adherence_week <dt_id>\n\n"
+            "Esempio: `/adherence_week abc123def456`\n\n"
+            "Usa `/list_dt` per vedere i tuoi Digital Twin disponibili.", 
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    dt_id = context.args[0]
+    
+    try:
+        # Ottieni i servizi necessari in modo coerente con il resto del codice
+        try:
+            dt_factory = context.application.bot_data.get('dt_factory')
+            db_service = context.application.bot_data.get('db_service')
+            
+            if not dt_factory or not db_service:
+                await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
+                return
+        except KeyError:
+            await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
+            print("Errore critico: servizi non trovati in application.bot_data")
+            return
+        
+        # Verifica che il DT esista e appartenga all'utente
+        dt = dt_factory.get_dt(dt_id)
+        if not dt:
+            await update.message.reply_text("❌ Digital Twin non trovato.")
+            return
+            
+        if dt.get('metadata', {}).get('user_id') != user_db_id:
+            await update.message.reply_text("❌ Non sei autorizzato ad accedere a questo Digital Twin.")
+            return
+        
+        # CORREZIONE: Usa digital_replicas invece di connected_devices
+        digital_replicas = dt.get('digital_replicas', [])
+        print(f"DEBUG DIGITAL REPLICAS: {digital_replicas}")
+        
+        # Controlla se ogni dispositivo ha i campi attesi
+        for i, device in enumerate(digital_replicas):
+            print(f"DEBUG DEVICE {i}: {device}")
+            print(f"DEBUG DEVICE {i} TYPE: {device.get('type')}")
+            print(f"DEBUG DEVICE {i} ID: {device.get('id')}")
+        
+        # Estrai gli ID dai digital_replicas
+        dispenser_ids = [device['id'] for device in digital_replicas 
+                         if device.get('type') == 'dispenser_medicine']
+        print(f"DEBUG DISPENSER IDS: {dispenser_ids}")
+        
+        if not dispenser_ids:
+            await update.message.reply_text(
+                f"ℹ️ Il Digital Twin '{dt.get('name', '')}' non ha dispensatori collegati.\n\n"
+                f"Usa `/add_dispenser_dt {dt_id} <dispenser_id>` per collegare un dispensatore.", 
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Ottieni i dispenser collegati al DT
+        dispensers = []
+        for dispenser_id in dispenser_ids:
+            print(f"DEBUG GETTING DISPENSER: {dispenser_id}")
+            dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
+            print(f"DEBUG DISPENSER RESULT: {dispenser}")
+            
+            if dispenser:
+                dispensers.append(dispenser)
+                
+        print(f"DEBUG FINAL DISPENSERS: {dispensers}")
+        
+        if not dispensers:
+            await update.message.reply_text("ℹ️ Non ci sono dispensatori validi collegati a questo Digital Twin.")
+            return
+        
+        # Calcola le date degli ultimi 7 giorni
+        today = datetime.now().date()
+        days = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        days.reverse()  # Dal più vecchio al più recente
+        
+        # Formattazione giorni per intestazione
+        short_days = [(datetime.strptime(day, "%Y-%m-%d").strftime("%d/%m")) for day in days]
+        
+        dt_name = dt.get('name', 'Digital Twin')
+        msg = f"📊 *Aderenza settimanale ai medicinali - {dt_name}*\n\n"
+        msg += "```\n"  # Formatting Markdown monospace
+        msg += "Medicinale      | " + " | ".join(short_days) + "\n"
+        msg += "----------------|------|------|------|------|------|------|------\n"
+        
+        for dispenser in dispensers:
+            # Accesso al nome del dispenser
+            dispenser_name = dispenser.get("data", {}).get("name", "???")
+            # name_truncated = (dispenser_name[:12] + "...") if len(dispenser_name) > 15 else dispenser_name.ljust(15)
+            name_truncated = dispenser_name
+            regularity = dispenser.get("data", {}).get("regularity", [])
+            # Ottieni la frequenza con valore predefinito 1
+            freq = dispenser.get("data", {}).get("frequency_per_day", 1)
+            
+            # Controlla l'assunzione per ogni giorno
+            day_status = []
+            for day in days:
+                day_entries = [r for r in regularity if r.get("date") == day]
+                if not day_entries:
+                    day_status.append("❌")  # Nessuna assunzione registrata
+                else:
+                    # Gestisci in modo sicuro l'accesso agli elementi
+                    times = day_entries[0].get("times", []) if day_entries else []
+                    times_taken = len(times)
+                    if times_taken >= freq:
+                        day_status.append("✅")  # Assunzioni complete
+                    elif times_taken > 0:
+                        day_status.append("⚠️")  # Assunzioni parziali
+                    else:
+                        day_status.append("❌")  # Nessuna assunzione registrata
+            
+            msg += f"{name_truncated} | " + " | ".join(day_status) + "\n"
+        
+        msg += "```\n"
+        msg += "\n✅ = Completo, ⚠️ = Parziale, ❌ = Mancante"
+        
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    except Exception as e:
+        print(f"Errore in show_weekly_adherence_handler: {e}")
+        await update.message.reply_text(f"❌ Si è verificato un errore durante il recupero dei dati di aderenza: {e}", parse_mode=ParseMode.MARKDOWN)

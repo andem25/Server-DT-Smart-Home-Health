@@ -2,90 +2,54 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from flask import current_app
 from datetime import datetime
+from telegram.constants import ParseMode
 
 async def create_dt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Crea un nuovo Digital Twin completo con tutti i servizi Smart Home Health"""
-    # Verifica che l'utente sia loggato
-    user_db_id = context.user_data.get('user_db_id')
-    username = context.user_data.get('username')
+    """Crea un nuovo Digital Twin per l'utente utilizzando il DTManager."""
+    user_db_id = context.user_data.get("user_db_id")
     if not user_db_id:
         await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
         return
 
-    # Verifica i parametri
-    if len(context.args) < 1:
-        await update.message.reply_text("❗ Uso: /create_dt <nome_digital_twin> [descrizione]")
+    # Estrai il nome del DT dal comando
+    try:
+        dt_name = context.args[0]
+    except (IndexError, ValueError):
+        await update.message.reply_text("Uso: /create_dt <nome_del_dt>")
         return
 
-    dt_name = context.args[0]
-    dt_description = " ".join(context.args[1:]) if len(context.args) > 1 else f"Smart Home Health DT di {username}"
+    # Ottieni il DTManager dalla configurazione dell'app
+    dt_manager = current_app.config["DT_MANAGER"]
     
+    await update.message.reply_text(f"⏳ Creazione del Digital Twin '{dt_name}' in corso...")
+
     try:
-        # Ottieni il DT Manager e il db_service
-        dt_manager = context.application.bot_data.get('dt_manager')
-        db_service = context.application.bot_data.get('db_service')
+        # --- INIZIO MODIFICA CRUCIALE ---
+        # Chiama il metodo corretto e completo del DTManager
+        description = f"Smart Home Health DT di {update.effective_user.first_name}"
+        dt_id = dt_manager.create_smart_home_health_dt(
+            user_id=user_db_id, 
+            name=dt_name, 
+            description=description
+        )
+        # --- FINE MODIFICA CRUCIALE ---
         
-        if not dt_manager or not db_service:
-            await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
-            return
-        
-        # Verifica se esiste già un DT con questo nome (controllo più robusto)
-        existing_dt = db_service.query_drs("digital_twins", {"name": dt_name})
-        
-        if existing_dt and len(existing_dt) > 0:
-            # Genera un nome univoco aggiungendo un timestamp
-            import time
-            timestamp = int(time.time()) % 10000  # Prendi solo le ultime 4 cifre
-            suggested_names = [
-                f"{dt_name}_{timestamp}", 
-                f"{dt_name}_{username[:5]}", 
-                f"{dt_name}_home"
-            ]
-            suggestions = ", ".join([f"`{name}`" for name in suggested_names])
-            
-            await update.message.reply_text(
-                f"⚠️ *Impossibile creare il Digital Twin*\n\n"
-                f"Il nome '{dt_name}' è già in uso da un altro Digital Twin.\n\n"
-                f"*Cosa puoi fare:*\n"
-                f"1. Usare un nome diverso con `/create_dt NuovoNome`\n"
-                f"2. Provare uno dei seguenti nomi suggeriti:\n{suggestions}\n\n"
-                f"3. Usare il comando `/create_unique_dt {dt_name}` che genererà automaticamente un nome univoco.", 
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Procedi con la creazione del DT
-        dt_id = dt_manager.create_smart_home_health_dt(user_id=user_db_id, name=dt_name, description=dt_description)
+        # Ora il DT è stato creato con TUTTI i servizi configurati in dt_manager.py
+        dt_doc = dt_manager.dt_factory.get_dt(dt_id) # Usiamo il factory per ottenere il documento
         
         await update.message.reply_text(
-            f"✅ Digital Twin '{dt_name}' creato con successo!\n"
-            f"ID: `{dt_id}`\n"
-            f"Descrizione: {dt_description}\n\n"
-            f"Servizi configurati correttamente.\n"
-            f"Usa `/list_dt` per visualizzare i tuoi Digital Twin.",
-            parse_mode="Markdown"
+            f"✅ Digital Twin '{dt_name}' creato con successo!\n\n"
+            f"🆔 *ID*: `{dt_id}`\n"
+            f"📝 *Descrizione*: {dt_doc['description']}\n\n"
+            "Tutti i servizi sono stati configurati correttamente.\n"
+            "Usa `/list_dt` per visualizzare i tuoi Digital Twin.",
+            parse_mode=ParseMode.MARKDOWN
         )
-        
+
     except Exception as e:
-        error_message = str(e).lower()
-        if "duplicate key" in error_message and "name" in error_message:
-            # Cattura specificamente gli errori di nome duplicato che sono sfuggiti al controllo iniziale
-            import time
-            timestamp = int(time.time()) % 10000
-            await update.message.reply_text(
-                f"⚠️ *Il nome '{dt_name}' è già utilizzato*\n\n"
-                f"Prova con un nome più specifico come:\n"
-                f"- `{dt_name}_{timestamp}`\n"
-                f"- `{dt_name}_{username}`\n"
-                f"- `{dt_name}_home`\n\n"
-                f"Oppure usa il comando automatico:\n"
-                f"`/create_unique_dt {dt_name}`",
-                parse_mode="Markdown"
-            )
-        else:
-            # Altri tipi di errori
-            await update.message.reply_text(f"❌ Si è verificato un errore durante la creazione del Digital Twin. Per favore riprova.")
-            print(f"Errore in create_dt_handler: {e}")
+        print(f"Errore catastrofico nella creazione del DT: {e}")
+        await update.message.reply_text(f"❌ Errore nella creazione del DT: {e}")
+
 
 
 async def list_dt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
