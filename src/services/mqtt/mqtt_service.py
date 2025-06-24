@@ -78,52 +78,25 @@ class MqttSubscriber:
         self.app = app  # Memorizza il riferimento all'app Flask
         
     def set_dt_factory(self, dt_factory):
-        """Imposta il riferimento al DTFactory per l'integrazione con i Digital Twin"""
+        """Imposta il DTFactory per accedere ai Digital Twin"""
         self.dt_factory = dt_factory
         print("MQTT Subscriber: DTFactory collegato con successo")
-    def on_message(self, client, userdata, msg):
-        """Callback when a message is received"""
-        try:
-            topic = msg.topic
-            payload = msg.payload.decode('utf-8').strip()
-            
-            # Estrai l'ID del dispositivo dal topic (formato: id_dispositivo/taken)
-            device_id = topic.split('/')[0]
-            print(f"MQTT: Ricevuto '{payload}' sul topic '{topic}', ID dispositivo: {device_id}")
-            
-            # Accedi al contesto dell'app solo se disponibile
-            if self.app and payload == "1":
-                with self.app.app_context():
-                    # Accedi a current_app solo all'interno del contesto
-                    if "TELEGRAM_LOOP" in current_app.config:
-                        loop = current_app.config["TELEGRAM_LOOP"]
-                        if loop and loop.is_running():
-                            # Decommentare se necessario inviare l'alerta
-                            run_coroutine_threadsafe(
-                                send_alert_to_user(157933243, "poba", 666.0),
-                                loop)
-                    
-                    # Aggiorna la regolarità all'interno del contesto dell'app
-                    self._update_regularity(device_id)
-            elif payload == "1":
-                # Caso in cui non è disponibile l'app ma dobbiamo comunque aggiornare la regolarità
-                self._update_regularity(device_id)
-                
-        except Exception as e:
-            print(f"MQTT Subscriber: Errore nell'elaborazione del messaggio: {e}")
 
     def on_connect(self, client, userdata, flags, rc):
-            """Callback when connected to the MQTT broker"""
-            if rc == 0:
-                print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
-                # Sottoscrivi a tutti i topic che terminano con /taken
-                client.subscribe("+/taken")
-                print("MQTT Subscriber: Sottoscritto ai topic */taken")
-                # --- NUOVA SOTTOSCRIZIONE PER LE PORTE ---
-                client.subscribe("+/door/status")
-                print("MQTT Subscriber: Sottoscritto ai topic */door/status")
-            else:
-                print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
+        """Callback when connected to the MQTT broker"""
+        if rc == 0:
+            print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
+            # Sottoscrivi a tutti i topic che terminano con /taken
+            client.subscribe("+/taken")
+            print("MQTT Subscriber: Sottoscritto ai topic */taken")
+            # --- NUOVA SOTTOSCRIZIONE PER LE PORTE ---
+            client.subscribe("+/door/status")
+            print("MQTT Subscriber: Sottoscritto ai topic */door/status")
+            # --- AGGIUNGI SOTTOSCRIZIONE PER EMERGENZE ---
+            client.subscribe("+/emergency")
+            print("MQTT Subscriber: Sottoscritto ai topic */emergency")
+        else:
+            print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
 
     def on_message(self, client, userdata, msg):
         """Callback when a message is received"""
@@ -152,15 +125,23 @@ class MqttSubscriber:
                 else:
                     self._update_regularity(device_id)
 
-            # --- NUOVA GESTIONE PER LO STATO DELLA PORTA ---
+            # Gestione dello stato della porta
             elif topic_suffix == "door/status":
                 if payload in ["open", "closed"]:
                     self._update_door_status(device_id, payload)
                 else:
                     print(f"MQTT Subscriber: Payload non valido per stato porta: '{payload}'")
-            
-            # Puoi aggiungere altri 'elif' per gestire altri topic
                 
+            # Gestione richieste di emergenza
+            elif topic_suffix == "emergency":
+                if payload == "1":
+                    print(f"🚨 EMERGENZA rilevata dal dispositivo: {device_id}")
+                    self._handle_emergency_request(device_id)
+                else:
+                    print(f"MQTT Subscriber: Payload non valido per emergenza: '{payload}'")
+        
+        # Altri gestori di topic...
+            
         except Exception as e:
             print(f"MQTT Subscriber: Errore nell'elaborazione del messaggio: {e}")
             
@@ -412,3 +393,134 @@ class MqttSubscriber:
             self.client.loop_stop()
             self.client.disconnect()
             print("MQTT Subscriber: Fermato e disconnesso")
+
+    def connect(self):
+        """Connect to the MQTT broker"""
+        try:
+            # Configura il client MQTT
+            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
+            self.client.username_pw_set(self.username, self.password)
+            self.client.on_connect = self.on_connect
+            self.client.on_message = self.on_message
+            
+            # Configura TLS
+            self.client.tls_set(cert_reqs=ssl.CERT_NONE)
+            self.client.tls_insecure_set(True)
+            
+            # Effettua la connessione al broker
+            self.client.connect(self.broker_url, self.broker_port, 60)
+            
+            # Sottoscrivi ai topic necessari
+            self.client.subscribe([
+                ("+/taken", 0),         # Monitoraggio assunzione medicinali
+                ("+/door/status", 0),   # Stato della porta del dispenser
+                ("+/emergency", 0),      # NUOVO: Topic per richieste di emergenza
+                # Aggiungi altri topic se necessari
+            ])
+            
+            print(f"MQTT Subscriber: Connesso al broker {self.broker_url} e sottoscritto ai topic")
+            return True
+        except Exception as e:
+            print(f"MQTT connection error: {e}")
+            return False
+
+    def _handle_emergency_request(self, device_id):
+        """Gestisce una richiesta di aiuto di emergenza"""
+        try:
+            # Verifica se esiste il dispositivo
+            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
+            if not dispenser:
+                print(f"Dispositivo {device_id} non trovato")
+                return
+                
+            # Trova tutti i DT collegati a questo dispositivo
+            dt_ids = self._find_dts_with_dr("dispenser_medicine", device_id)
+            
+            if not dt_ids:
+                print(f"Nessun Digital Twin associato al dispositivo {device_id}")
+                # Invia comunque una notifica generica se possibile
+                self._send_generic_emergency_alert(device_id)
+                return
+                
+            for dt_id in dt_ids:
+                try:
+                    # Ottieni i dettagli del DT
+                    dt = self.dt_factory.get_dt(dt_id)
+                    dt_name = dt.get("name", "Digital Twin")
+                    
+                    # Attiva il servizio di emergenza
+                    dt_instance = self.dt_factory.get_dt_instance(dt_id)
+                    if dt_instance:
+                        emergency_service = dt_instance.get_service("EmergencyRequestService")
+                        if emergency_service:
+                            emergency_service.emergency_requested(device_id, dt_id, dt_name)
+                        else:
+                            print(f"EmergencyRequestService non trovato nel DT {dt_id}")
+                    else:
+                        print(f"Istanza DT non trovata per {dt_id}")
+                        
+                except Exception as e:
+                    print(f"Errore nella gestione dell'emergenza per DT {dt_id}: {e}")
+        except Exception as e:
+            print(f"Errore nella gestione dell'emergenza: {e}")
+
+    def _find_dts_with_dr(self, dr_type, dr_id):
+        """Trova tutti i Digital Twin che contengono una certa Digital Replica"""
+        try:
+            # Ottieni tutti i Digital Twin dal database
+            all_dts = self.db_service.query_drs("digital_twins", {})
+            matching_dts = []
+            
+            for dt in all_dts:
+                dt_id = str(dt.get("_id"))
+                dt_instance = self.dt_factory.get_dt_instance(dt_id)
+                
+                if dt_instance and dt_instance.contains_dr(dr_type, dr_id):
+                    matching_dts.append(dt_id)
+                    
+            return matching_dts
+        except Exception as e:
+            print(f"Errore nella ricerca dei DT con DR {dr_id}: {e}")
+            return []
+            
+    def _send_generic_emergency_alert(self, device_id):
+        """Invia un avviso di emergenza generico quando non c'è un DT associato"""
+        try:
+            print(f"DEBUG: Tentativo di invio notifica generica di emergenza per dispositivo {device_id}")
+            
+            # Utilizziamo sempre l'ID Telegram hardcoded per test
+            telegram_id = 157933243  # ID Telegram di esempio
+            
+            # Ottieni il token del bot
+            token = None
+            if self.app:
+                with self.app.app_context():
+                    if "TELEGRAM_BOT" in current_app.config:
+                        from os import environ
+                        token = environ.get('TELEGRAM_TOKEN')
+            
+            if not token:
+                print("DEBUG: Token Telegram non trovato")
+                return
+                
+            # Invia il messaggio direttamente tramite HTTP
+            import requests
+            message = f"🚨 EMERGENZA RILEVATA dal dispositivo {device_id}! Richiesto intervento immediato."
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            data = {
+                "chat_id": telegram_id,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+            
+            print("DEBUG: Invio messaggio diretto tramite API HTTP...")
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                print(f"DEBUG: Messaggio inviato con successo: {response.json()}")
+            else:
+                print(f"DEBUG: Errore nell'invio del messaggio: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"ERRORE nell'invio dell'avviso di emergenza generico: {e}")
+            import traceback
+            traceback.print_exc()

@@ -101,18 +101,22 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
+    # Create Flask app prima di usarla
+    app = create_app()
     
-    # Initialize bot application with persistence (RIMUOVI LA DUPLICAZIONE)
+    # Initialize bot application with persistence
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     # Utilizziamo un solo loop principale per tutte le operazioni
     application.loop = loop
     
+    # Ora che app è definita, possiamo usare app.config
+    app.config['TELEGRAM_BOT'] = application.bot
+    app.config['TELEGRAM_LOOP'] = loop
     
-        
     # Inizializza prima l'applicazione
     loop.run_until_complete(application.initialize())
     
-    # Poi configura gli handlerss
+    # Poi configura gli handlers
     setup_handlers(application)
     
     webhook_url = None
@@ -134,10 +138,8 @@ def main():
     else:
         return
     
-    # Create Flask app
-    app = create_app()
-    init_routes(application)  # Pass the telegram application to the routes
-    
+    # Ora configura le routes passando l'applicazione Telegram
+    init_routes(application)
     
     try:
         # Load database configuration
@@ -178,7 +180,7 @@ def main():
         # Collega MQTT_SUBSCRIBER con DTFactory
         mqtt_subscriber.set_dt_factory(dt_factory)
         
-        # Memorizza nelle configurazioni
+        # Memorizza configurazioni in modo coerente e rimuovi il doppio loop
         app.config['DT_FACTORY'] = dt_factory
         app.config['DT_MANAGER'] = dt_manager
         application.bot_data['dt_factory'] = dt_factory
