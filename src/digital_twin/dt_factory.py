@@ -83,7 +83,7 @@ class DTFactory:
             "DoorEventService": "src.services.door_event_service",
             "MessageDisplayService": "src.services.message_display_service",
             "AdherenceLoggingService": "src.services.adherence_logging_service",
-            "IrregularityAlertService": "src.services.irregularity_alert_service",
+            "IrregularityAlertService": "src.services.irregularity",
             "EmergencyRequestService": "src.services.emergency_request_service",
             "EnvironmentalMonitoringService": "src.services.environmental_monitoring_service",
             "ProfileManagementService": "src.services.profile_management_service",

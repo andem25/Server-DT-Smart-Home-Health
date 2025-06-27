@@ -94,10 +94,10 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text("❌ Non hai i permessi per visualizzare questo Digital Twin.")
             return
         
-        # Ottieni i dispositivi collegati
-        connected_devices = dt.get('connected_devices', [])
+        # CORREZIONE: Usa digital_replicas invece di connected_devices
+        digital_replicas = dt.get('digital_replicas', [])
         
-        if not connected_devices:
+        if not digital_replicas:
             await update.message.reply_text(
                 f"📱 Il Digital Twin '{dt.get('name')}' non ha dispositivi collegati.\n\n"
                 f"Usa `/add_dispenser_dt {dt_id} <nome_medicinale>` per collegare un dispenser.",
@@ -108,7 +108,8 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
         # Componi il messaggio con i dispositivi
         msg = f"📱 Dispositivi collegati al Digital Twin '{dt.get('name')}':\n\n"
         
-        for idx, device in enumerate(connected_devices, 1):
+        # CORREZIONE: Usa digital_replicas invece di connected_devices
+        for idx, device in enumerate(digital_replicas, 1):
             device_id = device.get('id', 'ID sconosciuto')
             device_type = device.get('type', 'Tipo sconosciuto')
             device_name = device.get('name', 'Nome sconosciuto')

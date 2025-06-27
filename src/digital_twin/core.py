@@ -47,6 +47,23 @@ class DigitalTwin:
         # Execute service with data and additional parameters
         return service.execute(data, **kwargs)
 
+    def contains_dr(self, dr_type: str, dr_id: str) -> bool:
+        """
+        Verifica se il Digital Twin contiene una specifica Digital Replica.
+
+        Args:
+            dr_type (str): Tipo della Digital Replica
+            dr_id (str): ID della Digital Replica
+
+        Returns:
+            bool: True se la Digital Replica è contenuta nel Digital Twin, False altrimenti
+        """
+        dt_data = self._dt_data
+        for dr in dt_data.get("digital_replicas", []):
+            if dr.get("type") == dr_type and dr.get("id") == dr_id:
+                return True
+        return False
+
     # def execute_service_on_dr(self, service_name: str, dr: Any) -> Any:
     #     """
     #     Esegue un servizio sui dati di una DR

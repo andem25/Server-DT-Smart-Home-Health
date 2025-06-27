@@ -86,6 +86,11 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("dt_devices", list_dt_devices_handler))
     application.add_handler(CommandHandler("check_alerts", check_irregularities_handler))
     
+    # Nuovo handler per dati ambientali
+    from src.application.bot.handlers.environmental_handlers import show_environmental_data_handler, set_environmental_limits_handler
+    application.add_handler(CommandHandler("env_data", show_environmental_data_handler))
+    application.add_handler(CommandHandler("set_env_limits", set_environmental_limits_handler))
+    
     # Echo handler (non-command messages)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_handler))
     
