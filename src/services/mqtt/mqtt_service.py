@@ -2,14 +2,19 @@ import paho.mqtt.client as mqtt
 import ssl
 import threading
 import time
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from asyncio import run_coroutine_threadsafe
 from flask import current_app
 from src.application.bot.notifications import send_alert_to_user
-
 import json
 from datetime import timedelta
-from config.settings import MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD
+from config.settings import (
+    MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD,
+    MQTT_TOPIC_TAKEN, MQTT_TOPIC_DOOR_STATUS, MQTT_TOPIC_EMERGENCY,
+    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC,  # Rimuovi MQTT_TOPIC_TEMP, MQTT_TOPIC_HUMIDITY
+    MQTT_TOPIC_LED_STATES
+)
 
 BROKER_URL = MQTT_BROKER
 BROKER_PORT = MQTT_PORT
@@ -19,7 +24,7 @@ MQTT_PASSWORD = MQTT_PASSWORD
 
 
 # --- Funzione di utilità per inviare messaggi MQTT ---
-def send_mqtt_message(message: str, topic: str = "all_devices/led_states"):
+def send_mqtt_message(message: str, topic: str = MQTT_TOPIC_LED_STATES):
     """Funzione helper per inviare un singolo messaggio MQTT."""
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
     client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
@@ -86,19 +91,29 @@ class MqttSubscriber:
         """Callback when connected to the MQTT broker"""
         if rc == 0:
             print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
-            # Sottoscrizioni esistenti
-            client.subscribe("+/taken")
-            print("MQTT Subscriber: Sottoscritto ai topic */taken")
-            client.subscribe("+/door/status")
-            print("MQTT Subscriber: Sottoscritto ai topic */door/status")
-            client.subscribe("+/emergency")
-            print("MQTT Subscriber: Sottoscritto ai topic */emergency")
             
-            # NUOVE SOTTOSCRIZIONI PER DATI AMBIENTALI
-            client.subscribe("+/env/temperature")
-            print("MQTT Subscriber: Sottoscritto ai topic */env/temperature")
-            client.subscribe("+/env/humidity")
-            print("MQTT Subscriber: Sottoscritto ai topic */env/humidity")
+            # Sottoscrizioni principali usando le variabili di configurazione
+            client.subscribe(f"+/{MQTT_TOPIC_TAKEN}")
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_TAKEN}")
+            
+            client.subscribe(f"+/{MQTT_TOPIC_DOOR_STATUS}")
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_DOOR_STATUS}")
+            
+            client.subscribe(f"+/{MQTT_TOPIC_EMERGENCY}")
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_EMERGENCY}")
+            
+            # NUOVO: Sottoscrizione al topic dati ambientali combinati
+            client.subscribe(f"+/{MQTT_TOPIC_ENVIRONMENTAL}")
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ENVIRONMENTAL}")
+            
+            # Sottoscrizione per associazione dispositivi
+            client.subscribe(f"+/{MQTT_TOPIC_ASSOC}")
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ASSOC}")
+            
+            # RIMUOVI queste sottoscrizioni obsolete:
+            # client.subscribe("+/env/temperature")
+            # client.subscribe("+/env/humidity")
+            
         else:
             print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
 
@@ -114,50 +129,35 @@ class MqttSubscriber:
 
             print(f"MQTT: Ricevuto '{payload}' sul topic '{topic}', ID dispositivo: {device_id}")
 
-            # Gestione dei topic esistenti
-            if topic_suffix == "taken" and payload == "1":
-                if self.app:
-                    with self.app.app_context():
-                        if "TELEGRAM_LOOP" in current_app.config:
-                            loop = current_app.config["TELEGRAM_LOOP"]
-                            if loop and loop.is_running():
-                                run_coroutine_threadsafe(
-                                    send_alert_to_user(157933243, "poba", 666.0),
-                                    loop)
-                        self._update_regularity(device_id)
-                else:
-                    self._update_regularity(device_id)
-                
-            elif topic_suffix == "door/status":
+            # Gestione dei topic usando le variabili
+            if topic_suffix == MQTT_TOPIC_TAKEN and payload == "1":
+                self._update_regularity(device_id)
+            
+            elif topic_suffix == MQTT_TOPIC_DOOR_STATUS:
                 if payload in ["open", "closed"]:
                     self._update_door_status(device_id, payload)
                 else:
                     print(f"MQTT Subscriber: Payload non valido per stato porta: '{payload}'")
-                
-            elif topic_suffix == "emergency":
+            
+            elif topic_suffix == MQTT_TOPIC_EMERGENCY:
                 if payload == "1":
                     print(f"🚨 EMERGENZA rilevata dal dispositivo: {device_id}")
                     self._handle_emergency_request(device_id)
                 else:
                     print(f"MQTT Subscriber: Payload non valido per emergenza: '{payload}'")
-                
-            # NUOVI HANDLER PER DATI AMBIENTALI
-            elif topic_suffix == "env/temperature":
+            
+            # NUOVO HANDLER PER DATI AMBIENTALI COMBINATI
+            elif topic_suffix == MQTT_TOPIC_ENVIRONMENTAL:
                 try:
-                    temperature = float(payload)
-                    self._handle_temperature_data(device_id, temperature)
-                except ValueError:
-                    print(f"MQTT Subscriber: Payload temperatura non valido: '{payload}'")
-                
-            elif topic_suffix == "env/humidity":
-                try:
-                    humidity = float(payload)
-                    self._handle_humidity_data(device_id, humidity)
-                except ValueError:
-                    print(f"MQTT Subscriber: Payload umidità non valido: '{payload}'")
+                    env_data = json.loads(payload)
+                    self._handle_environmental_data(device_id, env_data)
+                except json.JSONDecodeError:
+                    print(f"MQTT Subscriber: Payload dati ambientali non valido (non è JSON): '{payload}'")
+                except Exception as e:
+                    print(f"MQTT Subscriber: Errore nella gestione dei dati ambientali: {e}")
     
         except Exception as e:
-            print(f"MQTT Subscriber: Errore nell'elaborazione del messaggio: {e}")
+            print(f"MQTT Subscriber: Errore nella gestione del messaggio: {e}")
             
     def _process_message(self, client, userdata, msg):
         """Elabora i messaggi MQTT ricevuti."""
@@ -203,8 +203,8 @@ class MqttSubscriber:
     def _update_door_status(self, dispenser_id, payload):
         """Aggiorna lo stato della porta del dispenser."""
         try:
-            # Ottieni lo stato corrente dal payload
-            state = payload.get("state")  # "open" o "closed"
+            # CORREZIONE: il payload è già una stringa, non un dizionario
+            state = payload  # "open" o "closed"
             timestamp = datetime.now()
             
             # Aggiorna il documento nel database
@@ -424,19 +424,132 @@ class MqttSubscriber:
             # Effettua la connessione al broker
             self.client.connect(self.broker_url, self.broker_port, 60)
             
-            # Sottoscrivi ai topic necessari
+            # Sottoscrivi ai topic necessari usando le variabili di configurazione
             self.client.subscribe([
-                ("+/taken", 0),         # Monitoraggio assunzione medicinali
-                ("+/door/status", 0),   # Stato della porta del dispenser
-                ("+/emergency", 0),      # NUOVO: Topic per richieste di emergenza
-                # Aggiungi altri topic se necessari
+                (f"+/{MQTT_TOPIC_TAKEN}", 0),             # Monitoraggio assunzione medicinali
+                (f"+/{MQTT_TOPIC_DOOR_STATUS}", 0),       # Stato della porta del dispenser
+                (f"+/{MQTT_TOPIC_EMERGENCY}", 0),         # Topic per richieste di emergenza
+                (f"+/{MQTT_TOPIC_ENVIRONMENTAL}", 0),     # Topic per dati ambientali combinati
+                (f"+/{MQTT_TOPIC_ASSOC}", 0),             # Topic per associazione dispositivi
             ])
             
-            print(f"MQTT Subscriber: Connesso al broker {self.broker_url} e sottoscritto ai topic")
+            print("MQTT Subscriber: Connessione effettuata e sottoscrizioni configurate")
             return True
+            
         except Exception as e:
-            print(f"MQTT connection error: {e}")
+            print(f"MQTT Subscriber: Errore nella connessione al broker: {e}")
             return False
+
+    def _handle_environmental_data(self, device_id, env_data):
+        """
+        Gestisce i dati ambientali combinati ricevuti via MQTT
+        
+        Args:
+            device_id (str): ID univoco del dispositivo
+            env_data (dict): Dizionario con temperatura, umidità e timestamp
+        """
+        try:
+            # Estrai i dati dal payload
+            temperature = env_data.get("avg_temperature")
+            humidity = env_data.get("avg_humidity")
+            time_str = env_data.get("time")
+            
+            if temperature is None or humidity is None:
+                print(f"MQTT Subscriber: Dati ambientali incompleti per {device_id}")
+                return
+            
+            # Valori soglia predefiniti
+            MIN_TEMP = 18.0
+            MAX_TEMP = 30.0
+            MIN_HUMIDITY = 30.0
+            MAX_HUMIDITY = 70.0
+            MAX_MEASUREMENTS = 1000
+            
+            # Ottieni il dispenser dal database
+            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
+            if not dispenser:
+                print(f"Dispositivo {device_id} non trovato nel database")
+                return
+            
+            # Ottieni i limiti personalizzati, se disponibili
+            custom_temp_limits = dispenser.get("data", {}).get("temperature_limits")
+            if custom_temp_limits and len(custom_temp_limits) == 2:
+                MIN_TEMP, MAX_TEMP = custom_temp_limits
+                
+            custom_humidity_limits = dispenser.get("data", {}).get("humidity_limits")
+            if custom_humidity_limits and len(custom_humidity_limits) == 2:
+                MIN_HUMIDITY, MAX_HUMIDITY = custom_humidity_limits
+            
+            # Controlla se i valori sono fuori range
+            temp_out_of_range = temperature < MIN_TEMP or temperature > MAX_TEMP
+            humidity_out_of_range = humidity < MIN_HUMIDITY or humidity > MAX_HUMIDITY
+            
+            # Crea timestamp ISO
+            if time_str:
+                # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
+                today = datetime.now().strftime("%Y-%m-%d")
+                timestamp = datetime.fromisoformat(f"{today}T{time_str}")
+            else:
+                timestamp = datetime.now()
+                
+            timestamp_iso = timestamp.isoformat()
+            
+            # Prepara i nuovi dati ambientali
+            new_temp_measurement = {
+                "type": "temperature",
+                "value": temperature,
+                "timestamp": timestamp_iso,
+                "unit": "°C"
+            }
+            
+            new_humidity_measurement = {
+                "type": "humidity",
+                "value": humidity,
+                "timestamp": timestamp_iso,
+                "unit": "%"
+            }
+            
+            # Gestisci l'array delle misurazioni in formato FIFO
+            measurements = dispenser.get("data", {}).get("environmental_data", [])
+            if not measurements:
+                measurements = []
+                
+            # Aggiungi le nuove misurazioni
+            measurements.append(new_temp_measurement)
+            measurements.append(new_humidity_measurement)
+            
+            # Se abbiamo raggiunto il massimo, rimuovi le più vecchie
+            while len(measurements) > MAX_MEASUREMENTS:
+                measurements.pop(0)  # Rimuove il primo elemento (FIFO)
+                
+            # Aggiorna il documento nel database
+            update_operation = {
+                "$set": {
+                    "data.environmental_data": measurements,
+                    "data.last_environmental_update": timestamp_iso
+                }
+            }
+            self.db_service.update_dr("dispenser_medicine", device_id, update_operation)
+            
+            print(f"Dati ambientali aggiornati per {device_id}: Temperatura: {temperature}°C, Umidità: {humidity}%")
+            
+            # Invia notifiche se necessario
+            if temp_out_of_range:
+                self._send_environmental_alert(device_id, "temperatura", temperature, "°C", MIN_TEMP, MAX_TEMP)
+                
+            if humidity_out_of_range:
+                self._send_environmental_alert(device_id, "umidità", humidity, "%", MIN_HUMIDITY, MAX_HUMIDITY)
+                
+            # Notifica eventuali Digital Twin associati
+            # Aggiorniamo per entrambe le misure
+            self._update_dt_environmental_services(device_id, new_temp_measurement)
+            self._update_dt_environmental_services(device_id, new_humidity_measurement)
+                
+        except Exception as e:
+            print(f"Errore nella gestione dei dati ambientali: {e}")
+            import traceback
+            traceback.print_exc()
+
 
     def _handle_emergency_request(self, device_id):
         """Gestisce una richiesta di aiuto di emergenza"""
@@ -539,149 +652,6 @@ class MqttSubscriber:
             import traceback
             traceback.print_exc()
     
-    def _handle_temperature_data(self, device_id, temperature):
-        """
-        Gestisce i dati di temperatura ricevuti via MQTT
-        
-        Args:
-            device_id (str): ID univoco del dispositivo
-            temperature (float): Valore della temperatura
-        """
-        try:
-            # Valori soglia di temperatura predefiniti
-            MIN_TEMP = 18.0
-            MAX_TEMP = 30.0
-            MAX_MEASUREMENTS = 1000
-            
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                print(f"Dispositivo {device_id} non trovato nel database")
-                return
-            
-            # Ottieni i limiti personalizzati, se disponibili
-            custom_temp_limits = dispenser.get("data", {}).get("temperature_limits")
-            if custom_temp_limits and len(custom_temp_limits) == 2:
-                MIN_TEMP, MAX_TEMP = custom_temp_limits
-            
-            # Controlla se il valore è fuori range
-            out_of_range = temperature < MIN_TEMP or temperature > MAX_TEMP
-            timestamp = datetime.now().isoformat()
-            
-            # Prepara il nuovo dato di temperatura
-            new_measurement = {
-                "type": "temperature",
-                "value": temperature,
-                "timestamp": timestamp,
-                "unit": "°C"
-            }
-            
-            # Gestisci l'array delle misurazioni in formato FIFO
-            measurements = dispenser.get("data", {}).get("environmental_data", [])
-            if not measurements:
-                measurements = []
-                
-            # Aggiungi la nuova misurazione
-            measurements.append(new_measurement)
-            
-            # Se abbiamo raggiunto il massimo, rimuovi la più vecchia
-            if len(measurements) > MAX_MEASUREMENTS:
-                measurements.pop(0)  # Rimuove il primo elemento (FIFO)
-                
-            # Aggiorna il documento nel database
-            update_operation = {
-                "$set": {
-                    "data.environmental_data": measurements,
-                    "data.last_environmental_update": timestamp
-                }
-            }
-            self.db_service.update_dr("dispenser_medicine", device_id, update_operation)
-            
-            print(f"Temperatura aggiornata per {device_id}: {temperature}°C")
-            
-            # Se il valore è fuori range, notifica l'utente
-            if out_of_range:
-                self._send_environmental_alert(device_id, "temperatura", temperature, "°C", MIN_TEMP, MAX_TEMP)
-                
-            # Notifica eventuali Digital Twin associati
-            self._update_dt_environmental_services(device_id, new_measurement)
-                
-        except Exception as e:
-            print(f"Errore nella gestione dei dati di temperatura: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def _handle_humidity_data(self, device_id, humidity):
-        """
-        Gestisce i dati di umidità ricevuti via MQTT
-        
-        Args:
-            device_id (str): ID univoco del dispositivo
-            humidity (float): Valore dell'umidità
-        """
-        try:
-            # Valori soglia di umidità predefiniti
-            MIN_HUMIDITY = 30.0
-            MAX_HUMIDITY = 70.0
-            MAX_MEASUREMENTS = 1000
-            
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                print(f"Dispositivo {device_id} non trovato nel database")
-                return
-                
-            # Ottieni i limiti personalizzati, se disponibili
-            custom_humidity_limits = dispenser.get("data", {}).get("humidity_limits")
-            if custom_humidity_limits and len(custom_humidity_limits) == 2:
-                MIN_HUMIDITY, MAX_HUMIDITY = custom_humidity_limits
-            
-            # Controlla se il valore è fuori range
-            out_of_range = humidity < MIN_HUMIDITY or humidity > MAX_HUMIDITY
-            timestamp = datetime.now().isoformat()
-            
-            # Prepara il nuovo dato di umidità
-            new_measurement = {
-                "type": "humidity",
-                "value": humidity,
-                "timestamp": timestamp,
-                "unit": "%"
-            }
-            
-            # Gestisci l'array delle misurazioni in formato FIFO
-            measurements = dispenser.get("data", {}).get("environmental_data", [])
-            if not measurements:
-                measurements = []
-                
-            # Aggiungi la nuova misurazione
-            measurements.append(new_measurement)
-            
-            # Se abbiamo raggiunto il massimo, rimuovi la più vecchia
-            if len(measurements) > MAX_MEASUREMENTS:
-                measurements.pop(0)  # Rimuove il primo elemento (FIFO)
-                
-            # Aggiorna il documento nel database
-            update_operation = {
-                "$set": {
-                    "data.environmental_data": measurements,
-                    "data.last_environmental_update": timestamp
-                }
-            }
-            self.db_service.update_dr("dispenser_medicine", device_id, update_operation)
-            
-            print(f"Umidità aggiornata per {device_id}: {humidity}%")
-            
-            # Se il valore è fuori range, notifica l'utente
-            if out_of_range:
-                self._send_environmental_alert(device_id, "umidità", humidity, "%", MIN_HUMIDITY, MAX_HUMIDITY)
-                
-            # Notifica eventuali Digital Twin associati
-            self._update_dt_environmental_services(device_id, new_measurement)
-            
-        except Exception as e:
-            print(f"Errore nella gestione dei dati di umidità: {e}")
-            import traceback
-            traceback.print_exc()
     
     def _send_environmental_alert(self, device_id, measure_type, value, unit, min_value, max_value):
         """

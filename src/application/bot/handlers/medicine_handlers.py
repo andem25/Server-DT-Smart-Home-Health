@@ -10,7 +10,7 @@ import re
 from src.services.database_service import DatabaseService
 import paho.mqtt.client as mqtt
 import ssl
-
+from config.settings import MQTT_TOPIC_ASSOC
 
 
 
@@ -63,7 +63,7 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
     # Callback per gestire i messaggi MQTT in arrivo
     def on_mqtt_message(client, userdata, msg):
         nonlocal mqtt_message_value
-        if msg.topic == f"{dispenser_id}/assoc":
+        if msg.topic == f"{dispenser_id}/{MQTT_TOPIC_ASSOC}":
             try:
                 payload = msg.payload.decode('utf-8').strip()
                 print(f"MQTT: Ricevuto '{payload}' sul topic '{msg.topic}'")
@@ -85,7 +85,7 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
         mqtt_subscriber.client.on_message = on_mqtt_message
         
         # Sottoscrivi al topic corretto
-        mqtt_subscriber.client.subscribe(f"{dispenser_id}/assoc")
+        mqtt_subscriber.client.subscribe(f"{dispenser_id}/{MQTT_TOPIC_ASSOC}")
         
         # Il loop è già avviato nel MqttSubscriber, non serve chiamare loop_start
         
@@ -108,7 +108,7 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
             mqtt_subscriber.client.on_message = mqtt_subscriber.on_message
             
             # Annulla la sottoscrizione
-            mqtt_subscriber.client.unsubscribe(f"{dispenser_id}/assoc")
+            mqtt_subscriber.client.unsubscribe(f"{dispenser_id}/{MQTT_TOPIC_ASSOC}")
             # Non fermiamo il loop perché è gestito dalla classe MqttSubscriber
     
     # Se siamo qui, significa che abbiamo ricevuto "1" dal topic

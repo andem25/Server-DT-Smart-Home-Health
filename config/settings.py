@@ -49,3 +49,11 @@ except ValueError as e:
 except Exception as e:
     raise RuntimeError(f"Failed to load database configuration: {e}")
 # -----------------------------
+
+# MQTT Topics
+MQTT_TOPIC_TAKEN = os.getenv("MQTT_TOPIC_TAKEN", "taken")
+MQTT_TOPIC_DOOR_STATUS = os.getenv("MQTT_TOPIC_DOOR_STATUS", "door/status")
+MQTT_TOPIC_EMERGENCY = os.getenv("MQTT_TOPIC_EMERGENCY", "emergency")
+MQTT_TOPIC_ENVIRONMENTAL = os.getenv("MQTT_TOPIC_ENVIRONMENTAL", "environmental_data")
+MQTT_TOPIC_ASSOC = os.getenv("MQTT_TOPIC_ASSOC", "assoc")
+MQTT_TOPIC_LED_STATES = os.getenv("MQTT_TOPIC_LED_STATES", "all_devices/led_states")

@@ -24,6 +24,8 @@ from config.settings import (
     SERVER_HOST,
     SERVER_PORT,
     WEBHOOK_PATH,
+    # Assicurati che la variabile MQTT_TOPIC_ENVIRONMENTAL sia importata correttamente
+    # e che le variabili MQTT_TOPIC_TEMP e MQTT_TOPIC_HUMIDITY siano rimosse o commentate
 )
 from src.application.bot.handlers.base_handlers import start_handler, help_handler, echo_handler
 from src.application.bot.handlers.user_handler import register_handler, login_handler, logout_handler, status_handler
