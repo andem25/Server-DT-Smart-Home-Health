@@ -408,3 +408,114 @@ async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DE
     except Exception as e:
         print(f"Errore in show_weekly_adherence_handler: {e}")
         await update.message.reply_text(f"❌ Si è verificato un errore durante il recupero dei dati di aderenza: {e}", parse_mode=ParseMode.MARKDOWN)
+
+# --- Imposta un intervallo orario personalizzato per l'assunzione dei medicinali ---
+async def set_medicine_time_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Imposta un intervallo orario personalizzato per l'assunzione dei medicinali.
+    
+    Uso:
+        /set_med_time <dispenser_id> <inizio> <fine> - Imposta l'intervallo orario per l'assunzione
+        
+    Esempio:
+        /set_med_time disp123 19:50 20:10 - Imposta assunzione tra le 19:50 e le 20:10
+    """
+    user_db_id = context.user_data.get('user_db_id')
+    if not user_db_id:
+        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
+        return
+        
+    # Verifica che siano forniti tutti i parametri necessari
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❗ Uso: \n"
+            "- `/set_med_time <dispenser_id> <inizio> <fine>` - per impostare orario di assunzione\n\n"
+            "Esempi:\n"
+            "- `/set_med_time disp123 19:50 20:10` - imposta assunzione tra le 19:50 e le 20:10\n",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+        
+    dispenser_id = context.args[0]
+    start_time = context.args[1]
+    end_time = context.args[2]
+    
+    # Verifica che gli orari siano nel formato corretto (HH:MM)
+    time_pattern = re.compile(r'^([01]\d|2[0-3]):([0-5]\d)$')
+    if not time_pattern.match(start_time) or not time_pattern.match(end_time):
+        await update.message.reply_text("❌ Formato orario non valido. Usa HH:MM (es. 19:50).")
+        return
+        
+    # Converti in oggetti datetime per confronto
+    now = datetime.now()
+    start_dt = datetime.strptime(f"{now.strftime('%Y-%m-%d')} {start_time}", "%Y-%m-%d %H:%M")
+    end_dt = datetime.strptime(f"{now.strftime('%Y-%m-%d')} {end_time}", "%Y-%m-%d %H:%M")
+    
+    # Controlla che l'orario di inizio sia prima dell'orario di fine
+    if start_dt >= end_dt:
+        await update.message.reply_text("❌ L'orario di inizio deve essere anteriore all'orario di fine.")
+        return
+    
+    # Ottieni i servizi necessari
+    try:
+        db_service = context.application.bot_data.get('db_service')
+        if not db_service:
+            await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
+            return
+            
+        # Ottieni il dispenser
+        dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
+        if not dispenser:
+            await update.message.reply_text(f"❌ Dispenser con ID `{dispenser_id}` non trovato.")
+            return
+            
+        if dispenser.get("user_db_id") != user_db_id:
+            await update.message.reply_text("❌ Non sei autorizzato a modificare questo dispenser.")
+            return
+            
+        # Prepara l'aggiornamento
+        update_operation = {
+            "$set": {
+                "data.medicine_time": {
+                    "start": start_time,
+                    "end": end_time
+                }
+            }
+        }
+        
+        # Aggiorna il database
+        db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
+        
+        # Aggiorna anche i Digital Twin collegati
+        dt_factory = context.application.bot_data.get('dt_factory')
+        if dt_factory:
+            try:
+                # CORREZIONE: usa list_dts() invece di get_all_dts()
+                for dt in dt_factory.list_dts():
+                    digital_replicas = dt.get('digital_replicas', [])
+                    for dr in digital_replicas:
+                        if dr.get('type') == 'dispenser_medicine' and dr.get('id') == dispenser_id:
+                            # Ottieni l'istanza DT se esiste un servizio di promemoria
+                            dt_instance = dt_factory.get_dt_instance(dt.get('_id'))
+                            if dt_instance:
+                                reminder_service = dt_instance.get_service("MedicationReminderService")
+                                if reminder_service:
+                                    reminder_service.update_medicine_times(dispenser_id, start_time, end_time)
+            except Exception as e:
+                print(f"Errore nell'aggiornamento dei servizi DT: {e}")
+                # Non interrompiamo il flusso principale se questo fallisce
+    
+        # Ottieni il nome del dispenser
+        dispenser_name = dispenser.get("data", {}).get("name", dispenser_id)
+        
+        # Rispondi all'utente
+        await update.message.reply_text(
+            f"✅ Orario di assunzione per '{dispenser_name}' impostato a:\n"
+            f"- Inizio: {start_time}\n"
+            f"- Fine: {end_time}\n\n"
+            f"Riceverai una notifica a metà dell'intervallo orario."
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Errore durante l'impostazione dell'intervallo orario: {e}")
+        print(f"Errore in set_medicine_time_handler: {e}")

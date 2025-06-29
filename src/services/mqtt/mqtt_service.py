@@ -12,7 +12,7 @@ from datetime import timedelta
 from config.settings import (
     MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD,
     MQTT_TOPIC_TAKEN, MQTT_TOPIC_DOOR_STATUS, MQTT_TOPIC_EMERGENCY,
-    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC,  # Rimuovi MQTT_TOPIC_TEMP, MQTT_TOPIC_HUMIDITY
+    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC, MQTT_TOPIC_NOTIFICATION,  # Aggiungi questa
     MQTT_TOPIC_LED_STATES
 )
 
@@ -197,8 +197,23 @@ class MqttSubscriber:
                 except Exception as e:
                     print(f"Errore nella gestione evento porta: {e}")
             
+            # Gestione topic di notifica (se il dispositivo risponde)
+            elif topic.startswith("dispenser/") and topic.endswith("/notification/ack"):
+                dispenser_id = topic.split("/")[1]
+                status = payload.get("status")
+                
+                if status == "received":
+                    print(f"Dispositivo {dispenser_id} ha ricevuto la notifica")
+                    
+                    # Qui potresti aggiornare lo stato nel database
+                    # self.db_service.update_dr("dispenser_medicine", dispenser_id, 
+                    #    {"$set": {"data.last_notification_ack": datetime.now().isoformat()}}
+            
+        except json.JSONDecodeError as e:
+            print(f"Errore nella decodifica del payload JSON: {e}")
+            print(f"Payload non valido: {msg.payload}")
         except Exception as e:
-            print(f"Errore nell'elaborazione del messaggio MQTT: {e}")
+            print(f"Errore nella gestione del messaggio MQTT: {e}")
 
     def _update_door_status(self, dispenser_id, payload):
         """Aggiorna lo stato della porta del dispenser."""

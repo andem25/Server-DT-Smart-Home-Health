@@ -13,6 +13,7 @@ from src.digital_twin.dt_manager import DTManager
 from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler
 from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler, check_irregularities_handler
 from src.application.bot.handlers.message_handlers import send_message_to_dispenser_handler
+from src.services.scheduler_service import SchedulerService
 
 # Load environment variables first
 load_dotenv()
@@ -35,7 +36,8 @@ from src.application.bot.handlers.medicine_handlers import (
     list_my_medicines_handler,
     set_interval_handler,
     show_regularity_handler,
-    show_weekly_adherence_handler,  # Import the new handler
+    show_weekly_adherence_handler,
+    set_medicine_time_handler,  # Aggiungi questa riga
 )
 
 from src.services.database_service import DatabaseService 
@@ -75,6 +77,7 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("add_medicine", create_medicine_handler))
     application.add_handler(CommandHandler("my_medicines", list_my_medicines_handler))
     application.add_handler(CommandHandler("set_interval", set_interval_handler))
+    application.add_handler(CommandHandler("set_med_time", set_medicine_time_handler))  # Aggiungi questa riga
     application.add_handler(CommandHandler("regularity", show_regularity_handler))
     application.add_handler(CommandHandler("adherence_week", show_weekly_adherence_handler))
     
@@ -198,7 +201,12 @@ def main():
         application.bot_data['user_service'] = user_service
         application.bot_data['schema_registry'] = schema_registry
 
+        # Inizializza e avvia lo scheduler dei servizi DT
+        scheduler_service = SchedulerService(dt_factory, db_service, interval=30)  # Controlla ogni 30 secondi
+        scheduler_service.start()
         
+        # Memorizza lo scheduler nella configurazione dell'app
+        app.config['SCHEDULER_SERVICE'] = scheduler_service
     
     except Exception as e:
         # print(f"Error during service initialization: {repr(e)}", exc_info=True)
@@ -248,7 +256,12 @@ def main():
             app.config['MQTT_SUBSCRIBER'].stop()
             print("MQTT subscriber stopped.")
             
-        
+        # Arresta anche lo scheduler
+        if 'scheduler_service' in locals() and scheduler_service:
+            print("Stopping DT service scheduler...")
+            scheduler_service.stop()
+            print("DT service scheduler stopped.")
+            
         
         
         # Disconnect ngrok

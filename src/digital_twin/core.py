@@ -25,6 +25,10 @@ class DigitalTwin:
         """List all services"""
         return list(self.active_services.keys())
 
+    def get_service(self, service_name: str):
+        """Get a service by name"""
+        return self.active_services.get(service_name)
+
     def remove_service(self, service_name: str) -> None:
         """Rimuove un servizio attivo"""
         if service_name in self.active_services:
