@@ -311,6 +311,16 @@ class MqttSubscriber:
             regularity_str = "REGOLARE" if is_regular else "IRREGOLARE"
             print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')} - {regularity_str}")
             
+            # NUOVO: Invia notifica all'utente se l'evento è irregolare
+            if not is_regular:
+                event_details = {
+                    "timestamp": timestamp,
+                    "state": state,
+                    "regularity": event_regularity,
+                    "reason": reason
+                }
+                self._send_door_irregularity_alert(dispenser_id, state, timestamp, event_details)
+        
             # Notifica i Digital Twin collegati
             if hasattr(self, 'dt_factory'):
                 # Trova tutti i DT che contengono questa DR
@@ -357,7 +367,7 @@ class MqttSubscriber:
             date_entry = next((item for item in regularity if item.get("date") == current_date), None)
             
             if date_entry:
-                # Se esiste già un entry per oggi, aggiungi l'orario attuale
+                # Se esiste già un'entry per oggi, aggiungi l'orario attuale
                 if "times" not in date_entry:
                     date_entry["times"] = []
                 date_entry["times"].append(current_time)
@@ -868,3 +878,82 @@ class MqttSubscriber:
                 
         except Exception as e:
             print(f"Errore generale nell'aggiornamento dei servizi DT: {e}")
+    
+    def _send_door_irregularity_alert(self, device_id, state, timestamp, event_details):
+        """
+        Invia una notifica all'utente quando si verifica un'apertura/chiusura porta irregolare
+        
+        Args:
+            device_id (str): ID del dispenser
+            state (str): Stato della porta ("open" o "closed")
+            timestamp (datetime): Momento dell'evento
+            event_details (dict): Dettagli aggiuntivi sull'evento
+        """
+        try:
+            # Ottieni il dispenser
+            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
+            if not dispenser:
+                print(f"Dispenser {device_id} non trovato per invio notifica porta irregolare")
+                return
+                
+            # Prepara i dettagli per la notifica
+            dispenser_name = dispenser.get("data", {}).get("name", f"Dispenser {device_id}")
+            time_str = timestamp.strftime("%H:%M:%S")
+            date_str = timestamp.strftime("%d/%m/%Y")
+            
+            # Ottieni l'orario configurato per contestualizzare il messaggio
+            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
+            time_window = ""
+            if medicine_time and medicine_time.get("start") and medicine_time.get("end"):
+                time_window = f" (orario corretto: {medicine_time.get('start')} - {medicine_time.get('end')})"
+            
+            # Prepara il messaggio di notifica
+            action = "apertura" if state == "open" else "chiusura"
+            message = f"⚠️ *Evento porta irregolare*\n\n"
+            message += f"📌 *{dispenser_name}*\n"
+            message += f"🚪 *{action.capitalize()} fuori orario* rilevata alle {time_str} del {date_str}{time_window}\n"
+            message += f"❗ Questa operazione è avvenuta al di fuori dell'orario di assunzione configurato."
+            
+            # SOLO PER TEST: Usa un ID Telegram hardcoded
+            telegram_id = 157933243  # ID Telegram per test
+            print(f"DEBUG: Utilizzo ID Telegram di test {telegram_id} per notifica porta")
+            
+            # Utilizza l'istanza del bot esistente nella configurazione dell'app
+            if self.app:
+                with self.app.app_context():
+                    # Ottieni l'istanza del bot esistente
+                    bot = self.app.config.get('TELEGRAM_BOT')
+                    
+                    if bot:
+                        # Usa il bot esistente per inviare il messaggio
+                        import asyncio
+                        asyncio.run(bot.send_message(
+                            chat_id=telegram_id,
+                            text=message,
+                            parse_mode="Markdown"
+                        ))
+                        print(f"Notifica irregolarità porta inviata all'ID Telegram: {telegram_id}")
+                    else:
+                        print("Istanza del bot non trovata nella configurazione dell'app")
+                        
+                    # Registra notifica inviata nel database
+                    notification = {
+                        "type": "door_irregularity",
+                        "device_id": device_id,
+                        "timestamp": timestamp.isoformat(),
+                        "state": state,
+                        "message": message
+                    }
+                    
+                    self.db_service.update_dr(
+                        "dispenser_medicine",
+                        device_id,
+                        {"$push": {"data.notifications": notification}}
+                    )
+            else:
+                print("Impossibile inviare notifica: contesto Flask non disponibile")
+                
+        except Exception as e:
+            print(f"Errore nell'invio della notifica di irregolarità porta: {e}")
+            import traceback
+            traceback.print_exc()

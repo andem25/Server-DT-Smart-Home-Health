@@ -67,8 +67,12 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Sezione notifiche MQTT
     help_text += "*🔔 SISTEMA DI NOTIFICHE*\n"
-    help_text += "Il bot ti invierà automaticamente notifiche quando il tuo dispenser registra un'assunzione "
-    help_text += "o ti invia avvisi. Non è necessario alcun comando aggiuntivo per ricevere le notifiche.\n\n"
+    help_text += "Il bot ti invierà automaticamente notifiche quando:\n"
+    help_text += "• Il tuo dispenser registra un'assunzione\n"
+    help_text += "• La porta viene aperta/chiusa fuori dall'orario configurato\n"
+    help_text += "• La temperatura o l'umidità escono dai limiti configurati\n"
+    help_text += "• La porta rimane aperta troppo a lungo\n"
+    help_text += "• Si verifica un'emergenza\n\n"
     
     # Sezione esempi
     help_text += "*📝 ESEMPI DI UTILIZZO*\n"
