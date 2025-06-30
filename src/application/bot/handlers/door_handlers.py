@@ -7,6 +7,7 @@ import io
 import numpy as np
 import matplotlib.dates as mdates
 import re
+import matplotlib.patches as mpatches
 
 async def show_door_events_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -114,13 +115,26 @@ async def show_door_events_handler(update: Update, context: ContextTypes.DEFAULT
     # Prepara il messaggio di testo con i dati sommari
     msg = f"🚪 *Eventi Porta - {dispenser_name}*\n\n"
     
+    # Ottieni medicine_time per riferimento
+    medicine_time = dispenser.get("data", {}).get("medicine_time", {})
+    if medicine_time:
+        start_time = medicine_time.get("start", "non impostato")
+        end_time = medicine_time.get("end", "non impostato")
+        msg += f"⏰ *Orario assunzione configurato:* {start_time} - {end_time}\n\n"
+    
     # Analisi degli eventi
     open_count = sum(1 for e in door_events if e.get("state") == "open")
     closed_count = sum(1 for e in door_events if e.get("state") == "closed")
     
+    # Conteggio eventi regolari e irregolari
+    regular_count = sum(1 for e in door_events if e.get("regularity") == "regular")
+    irregular_count = len(door_events) - regular_count
+    
     msg += f"📊 *Statistiche:*\n"
     msg += f"  • Aperture: {open_count}\n"
     msg += f"  • Chiusure: {closed_count}\n"
+    msg += f"  • Eventi regolari: {regular_count} ✅\n"
+    msg += f"  • Eventi irregolari: {irregular_count} ⚠️\n"
     
     if door_events:
         first_event = door_events[0]["datetime"].strftime("%d/%m/%Y %H:%M:%S")
@@ -128,6 +142,22 @@ async def show_door_events_handler(update: Update, context: ContextTypes.DEFAULT
         msg += f"  • Periodo: dal {first_event} al {last_event}\n"
     
     msg += f"\n*{filter_message}*"
+    
+    # Aggiungi la tabella degli ultimi 10 eventi
+    if door_events:
+        msg += "\n\n*Ultimi eventi:*\n"
+        last_events = door_events[-10:]  # Mostra solo gli ultimi 10 per evitare messaggi troppo lunghi
+        
+        for i, event in enumerate(last_events):
+            state = "🔓 Apertura" if event.get("state") == "open" else "🔒 Chiusura"
+            time_str = event["datetime"].strftime("%H:%M:%S")
+            date_str = event["datetime"].strftime("%d/%m/%Y")
+            
+            # Mostra la regolarità con emoji
+            is_regular = event.get("regularity") == "regular"
+            reg_emoji = "✅" if is_regular else "⚠️"
+            
+            msg += f"{i+1}. {state} {reg_emoji} - {date_str} {time_str}\n"
     
     # Invia il messaggio di testo
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -142,17 +172,64 @@ async def show_door_events_handler(update: Update, context: ContextTypes.DEFAULT
             fig, ax = plt.subplots(figsize=(10, 6))
             fig.suptitle(f'Eventi Porta - {dispenser_name}', fontsize=16)
             
-            # Prepara dati per il grafico
-            times = [e["datetime"] for e in door_events]
-            states = [1 if e.get("state") == "open" else 0 for e in door_events]
+            # Aggiungi linea per l'intervallo di tempo configurato se disponibile
+            if medicine_time and medicine_time.get("start") and medicine_time.get("end"):
+                start_time = medicine_time.get("start")
+                end_time = medicine_time.get("end")
+                
+                # Crea rettangolo che rappresenta l'intervallo di tempo corretto
+                today = datetime.now().strftime("%Y-%m-%d")
+                start_dt = datetime.strptime(f"{today} {start_time}", "%Y-%m-%d %H:%M")
+                end_dt = datetime.strptime(f"{today} {end_time}", "%Y-%m-%d %H:%M")
+                
+                # Estendi l'intervallo a tutti i giorni nel grafico
+                for event in door_events:
+                    event_date = event["datetime"].strftime("%Y-%m-%d")
+                    event_time = event["datetime"].strftime("%H:%M")
+                    
+                    # Crea datetime per questo giorno con orario di inizio e fine
+                    day_start = datetime.strptime(f"{event_date} {start_time}", "%Y-%m-%d %H:%M")
+                    day_end = datetime.strptime(f"{event_date} {end_time}", "%Y-%m-%d %H:%M")
+                    
+                    # Aggiungi rettangolo evidenziato per questo giorno
+                    ax.axvspan(day_start, day_end, alpha=0.2, color='green', label='Orario regolare')
             
-            # Crea il grafico a barre verticali
-            ax.stem(times, states, basefmt=' ', linefmt='b-', markerfmt='bo')
+            # Separa eventi regolari e irregolari per diversa visualizzazione
+            regular_opens = [e["datetime"] for e in door_events if e.get("state") == "open" and e.get("regularity") == "regular"]
+            regular_closes = [e["datetime"] for e in door_events if e.get("state") == "closed" and e.get("regularity") == "regular"]
+            
+            irregular_opens = [e["datetime"] for e in door_events if e.get("state") == "open" and e.get("regularity") != "regular"]
+            irregular_closes = [e["datetime"] for e in door_events if e.get("state") == "closed" and e.get("regularity") != "regular"]
+            
+            # Crea il grafico con colori diversi per eventi regolari e irregolari
+            # Plot eventi regolari
+            if regular_opens:
+                ax.stem(regular_opens, [1] * len(regular_opens), linefmt='g-', markerfmt='go', basefmt=" ", label='Aperture regolari')
+            if regular_closes:
+                ax.stem(regular_closes, [0] * len(regular_closes), linefmt='b-', markerfmt='bo', basefmt=" ", label='Chiusure regolari')
+                
+            # Plot eventi irregolari
+            if irregular_opens:
+                ax.stem(irregular_opens, [1] * len(irregular_opens), linefmt='r-', markerfmt='ro', basefmt=" ", label='Aperture irregolari')
+            if irregular_closes:
+                ax.stem(irregular_closes, [0] * len(irregular_closes), linefmt='r-', markerfmt='rs', basefmt=" ", label='Chiusure irregolari')
+            
+            # Configurazione asse y
             ax.set_yticks([0, 1])
             ax.set_yticklabels(['Chiusa', 'Aperta'])
             ax.set_xlabel('Orario')
             ax.set_title('Stato Porta')
             ax.grid(True)
+            
+            # Crea legenda manualmente per evitare duplicati
+            legend_elements = [
+                mpatches.Patch(color='green', alpha=0.2, label='Orario regolare assunzione'),
+                plt.Line2D([0], [0], marker='o', color='g', label='Apertura regolare', markerfacecolor='g'),
+                plt.Line2D([0], [0], marker='o', color='b', label='Chiusura regolare', markerfacecolor='b'),
+                plt.Line2D([0], [0], marker='o', color='r', label='Apertura irregolare', markerfacecolor='r'),
+                plt.Line2D([0], [0], marker='s', color='r', label='Chiusura irregolare', markerfacecolor='r')
+            ]
+            ax.legend(handles=legend_elements, loc='upper right')
             
             # Formattazione asse x
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M\n%d/%m'))
@@ -170,6 +247,8 @@ async def show_door_events_handler(update: Update, context: ContextTypes.DEFAULT
         except Exception as e:
             await chart_msg.edit_text(f"❌ Errore nella generazione del grafico: {str(e)}")
             print(f"Errore nel grafico: {e}")
+            import traceback
+            traceback.print_exc()
 
 def parse_date(date_str):
     """Funzione helper per parsare le date in vari formati"""

@@ -223,7 +223,7 @@ class MqttSubscriber:
                 else:
                     print(f"MQTT Subscriber: Valore porta non valido: {door_value}")
                     return
-                    
+                
                 # Crea timestamp completo
                 if time_str:
                     # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
@@ -231,28 +231,60 @@ class MqttSubscriber:
                     timestamp = datetime.fromisoformat(f"{today}T{time_str}")
                 else:
                     timestamp = datetime.now()
+                    time_str = timestamp.strftime("%H:%M:%S")
+                
             except json.JSONDecodeError:
                 print(f"MQTT Subscriber: Formato payload non valido per evento porta: '{payload}'")
                 return
             except ValueError as e:
                 print(f"MQTT Subscriber: Errore nel parsing dell'orario: {e}")
                 timestamp = datetime.now()
+                time_str = timestamp.strftime("%H:%M:%S")
         
             # Genera timestamp ISO
             timestamp_iso = timestamp.isoformat()
             
-            # Prepara il nuovo evento porta
-            new_door_event = {
-                "state": state,
-                "timestamp": timestamp_iso
-            }
-            
-            # Ottieni gli eventi esistenti
+            # Ottieni il dispenser per verificare gli orari di medicina configurati
             dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
             if not dispenser:
                 print(f"Dispenser {dispenser_id} non trovato nel database")
                 return
+            
+            # Verifica se l'evento è regolare in base all'orario di assunzione configurato
+            is_regular = False
+            event_regularity = "irregular"
+            reason = "outside_schedule"
+            
+            # Ottieni l'orario di assunzione configurato
+            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
+            if medicine_time:
+                start_time = medicine_time.get("start")
+                end_time = medicine_time.get("end")
                 
+                if start_time and end_time:
+                    # Converti orari in oggetti datetime per confronto
+                    try:
+                        today_str = timestamp.strftime("%Y-%m-%d")
+                        start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
+                        end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
+                        
+                        # Verifica se l'evento è all'interno dell'intervallo configurato
+                        if start_dt <= timestamp <= end_dt:
+                            is_regular = True
+                            event_regularity = "regular"
+                            reason = "within_schedule"
+                    except ValueError as e:
+                        print(f"Errore nel parsing degli orari di medicina: {e}")
+        
+            # Prepara il nuovo evento porta con informazioni sulla regolarità
+            new_door_event = {
+                "state": state,
+                "timestamp": timestamp_iso,
+                "regularity": event_regularity,
+                "reason": reason
+            }
+            
+            # Ottieni gli eventi esistenti
             door_events = dispenser.get("data", {}).get("door_events", [])
             if not door_events:
                 door_events = []
@@ -264,7 +296,7 @@ class MqttSubscriber:
             MAX_DOOR_EVENTS = 1000
             while len(door_events) > MAX_DOOR_EVENTS:
                 door_events.pop(0)
-            
+        
             # Aggiorna il documento nel database
             update_operation = {
                 "$set": {
@@ -275,7 +307,9 @@ class MqttSubscriber:
             }
             self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
             
-            print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')}")
+            # Log con informazioni sulla regolarità
+            regularity_str = "REGOLARE" if is_regular else "IRREGOLARE"
+            print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')} - {regularity_str}")
             
             # Notifica i Digital Twin collegati
             if hasattr(self, 'dt_factory'):
@@ -289,13 +323,14 @@ class MqttSubscriber:
                             # Ottieni e notifica il servizio DoorEventService se esiste
                             door_service = dt.get_service("DoorEventService")
                             if door_service:
-                                door_service.door_state_changed(dispenser_id, state, timestamp)
+                                door_service.door_state_changed(dispenser_id, state, timestamp, is_regular)
                     except Exception as e:
                         print(f"Errore nell'aggiornamento dello stato porta per DT {dt_id}: {e}")
             
         except Exception as e:
             print(f"Errore nell'aggiornamento dello stato porta per dispenser {dispenser_id}: {e}")
-
+            import traceback
+            traceback.print_exc()
 
     def _update_regularity(self, device_id):
         """Aggiorna la regolarità per il dispositivo specificato"""

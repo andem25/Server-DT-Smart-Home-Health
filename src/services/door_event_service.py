@@ -46,9 +46,15 @@ class DoorEventService(BaseService):
                 
         return results
     
-    def door_state_changed(self, door_id, state, timestamp=None):
+    def door_state_changed(self, door_id, state, timestamp=None, is_regular=False):
         """
         Gestisce il cambio di stato di una porta e aggiorna il database
+        
+        Args:
+            door_id: ID della porta
+            state: Stato della porta ('open' o 'closed')
+            timestamp: Timestamp dell'evento
+            is_regular: Se l'evento è considerato "regolare" rispetto all'orario di assunzione
         """
         if timestamp is None:
             timestamp = datetime.now()
@@ -56,7 +62,8 @@ class DoorEventService(BaseService):
         # Memorizza lo stato localmente
         self.last_state[door_id] = {
             'state': state,
-            'timestamp': timestamp
+            'timestamp': timestamp,
+            'is_regular': is_regular
         }
         
         # Aggiorna il database se disponibile
@@ -64,12 +71,15 @@ class DoorEventService(BaseService):
             update_operation = {
                 "$set": {
                     "data.door_status": state,
-                    "data.last_door_event": timestamp.isoformat()
+                    "data.last_door_event": timestamp.isoformat(),
+                    "data.last_event_regular": is_regular
                 }
             }
             self.db_service.update_dr("dispenser_medicine", door_id, update_operation)
             
-        print(f"[DoorEventService] Porta {door_id}: {state} alle {timestamp.strftime('%H:%M:%S')}")
+        # Log con informazioni sulla regolarità
+        regularity_str = "regolare" if is_regular else "irregolare"
+        print(f"[DoorEventService] Porta {door_id}: {state} alle {timestamp.strftime('%H:%M:%S')} - {regularity_str}")
     
     def _send_door_notification(self, dispenser):
         """Invia una notifica per una porta aperta da troppo tempo"""
