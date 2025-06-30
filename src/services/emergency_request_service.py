@@ -1,5 +1,5 @@
 from datetime import datetime
-from src.services.base_service import BaseService
+from src.services.base import BaseService
 from flask import current_app
 from asyncio import run_coroutine_threadsafe
 

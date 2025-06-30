@@ -1,7 +1,6 @@
 from src.services.base import BaseService
 from datetime import datetime, timedelta
-import json
-from src.services.mqtt.mqtt_service import send_mqtt_message
+from src.application.mqtt import send_mqtt_message
 
 class MedicationReminderService(BaseService):
     """Servizio promemoria medicinali per FR-1"""

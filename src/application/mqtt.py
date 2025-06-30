@@ -24,8 +24,15 @@ MQTT_PASSWORD = MQTT_PASSWORD
 
 
 # --- Funzione di utilità per inviare messaggi MQTT ---
-def send_mqtt_message(message: str, topic: str = MQTT_TOPIC_LED_STATES):
-    """Funzione helper per inviare un singolo messaggio MQTT."""
+def send_mqtt_message(message: str, topic: str = MQTT_TOPIC_LED_STATES, qos: int = 2):
+    """
+    Funzione helper per inviare un singolo messaggio MQTT.
+    
+    Args:
+        message: Messaggio da inviare
+        topic: Topic su cui pubblicare
+        qos: Quality of Service (0, 1 o 2), default 2 (exactly once)
+    """
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
     client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.tls_set(cert_reqs=ssl.CERT_NONE)
@@ -43,8 +50,8 @@ def send_mqtt_message(message: str, topic: str = MQTT_TOPIC_LED_STATES):
         except ValueError:
             payload = message
 
-        print(f"MQTT Sender: Tentativo invio '{payload}' su topic '{topic}'...")
-        result = client.publish(topic, payload)
+        print(f"MQTT Sender: Tentativo invio '{payload}' su topic '{topic}' con QoS {qos}...")
+        result = client.publish(topic, payload, qos=qos)
         print(f"MQTT Sender: Messaggio messo in coda per l'invio (mid={result.mid}). In attesa di conferma...")
         result.wait_for_publish(timeout=10)
 
@@ -92,24 +99,21 @@ class MqttSubscriber:
         if rc == 0:
             print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
             
-            # Sottoscrizioni principali usando le variabili di configurazione
-            client.subscribe(f"+/{MQTT_TOPIC_TAKEN}")
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_TAKEN}")
+            # Sottoscrizioni principali usando QoS 2
+            client.subscribe(f"+/{MQTT_TOPIC_TAKEN}", qos=2)
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_TAKEN} con QoS 2")
             
-            # NUOVO: Sottoscrizione al topic eventi porta (nuovo formato)
-            client.subscribe(f"+/{MQTT_TOPIC_DOOR}")
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_DOOR}")
+            client.subscribe(f"+/{MQTT_TOPIC_DOOR}", qos=2)
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_DOOR} con QoS 2")
             
-            client.subscribe(f"+/{MQTT_TOPIC_EMERGENCY}")
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_EMERGENCY}")
+            client.subscribe(f"+/{MQTT_TOPIC_EMERGENCY}", qos=2)
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_EMERGENCY} con QoS 2")
             
-            # Sottoscrizione al topic dati ambientali combinati
-            client.subscribe(f"+/{MQTT_TOPIC_ENVIRONMENTAL}")
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ENVIRONMENTAL}")
+            client.subscribe(f"+/{MQTT_TOPIC_ENVIRONMENTAL}", qos=2)
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ENVIRONMENTAL} con QoS 2")
             
-            # Sottoscrizione per associazione dispositivi
-            client.subscribe(f"+/{MQTT_TOPIC_ASSOC}")
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ASSOC}")
+            client.subscribe(f"+/{MQTT_TOPIC_ASSOC}", qos=2)
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ASSOC} con QoS 2")
             
         else:
             print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
@@ -938,7 +942,7 @@ class MqttSubscriber:
                         
                     # Registra notifica inviata nel database
                     notification = {
-                        "type": "door_irregularity",
+                        "type": "door_irregolarity",
                         "device_id": device_id,
                         "timestamp": timestamp.isoformat(),
                         "state": state,

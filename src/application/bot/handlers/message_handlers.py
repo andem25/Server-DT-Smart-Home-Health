@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from flask import current_app
-from src.services.mqtt.mqtt_service import send_mqtt_message
+from src.application.mqtt import send_mqtt_message
 from src.services.database_service import DatabaseService
 
 async def send_message_to_dispenser_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

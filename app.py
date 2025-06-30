@@ -4,7 +4,7 @@ from flask import Flask
 from pyngrok import ngrok, conf
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from dotenv import load_dotenv
-from src.services.mqtt.mqtt_service import send_mqtt_message, MqttSubscriber
+from src.application.mqtt import send_mqtt_message, MqttSubscriber
 import threading
 # Aggiungi dopo l'inizializzazione di mqtt_subscriber
 from src.digital_twin.dt_factory import DTFactory
