@@ -11,8 +11,8 @@ import json
 from datetime import timedelta
 from config.settings import (
     MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD,
-    MQTT_TOPIC_TAKEN, MQTT_TOPIC_DOOR_STATUS, MQTT_TOPIC_EMERGENCY,
-    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC, MQTT_TOPIC_NOTIFICATION,  # Aggiungi questa
+    MQTT_TOPIC_TAKEN, MQTT_TOPIC_DOOR, MQTT_TOPIC_EMERGENCY,
+    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC, MQTT_TOPIC_NOTIFICATION,
     MQTT_TOPIC_LED_STATES
 )
 
@@ -96,23 +96,20 @@ class MqttSubscriber:
             client.subscribe(f"+/{MQTT_TOPIC_TAKEN}")
             print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_TAKEN}")
             
-            client.subscribe(f"+/{MQTT_TOPIC_DOOR_STATUS}")
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_DOOR_STATUS}")
+            # NUOVO: Sottoscrizione al topic eventi porta (nuovo formato)
+            client.subscribe(f"+/{MQTT_TOPIC_DOOR}")
+            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_DOOR}")
             
             client.subscribe(f"+/{MQTT_TOPIC_EMERGENCY}")
             print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_EMERGENCY}")
             
-            # NUOVO: Sottoscrizione al topic dati ambientali combinati
+            # Sottoscrizione al topic dati ambientali combinati
             client.subscribe(f"+/{MQTT_TOPIC_ENVIRONMENTAL}")
             print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ENVIRONMENTAL}")
             
             # Sottoscrizione per associazione dispositivi
             client.subscribe(f"+/{MQTT_TOPIC_ASSOC}")
             print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_ASSOC}")
-            
-            # RIMUOVI queste sottoscrizioni obsolete:
-            # client.subscribe("+/env/temperature")
-            # client.subscribe("+/env/humidity")
             
         else:
             print(f"MQTT Subscriber: Fallita connessione al broker, codice {rc}")
@@ -133,11 +130,9 @@ class MqttSubscriber:
             if topic_suffix == MQTT_TOPIC_TAKEN and payload == "1":
                 self._update_regularity(device_id)
             
-            elif topic_suffix == MQTT_TOPIC_DOOR_STATUS:
-                if payload in ["open", "closed"]:
-                    self._update_door_status(device_id, payload)
-                else:
-                    print(f"MQTT Subscriber: Payload non valido per stato porta: '{payload}'")
+            # NUOVO: Gestisce il nuovo formato eventi porta
+            elif topic_suffix == MQTT_TOPIC_DOOR:
+                self._update_door_status(device_id, payload)
             
             elif topic_suffix == MQTT_TOPIC_EMERGENCY:
                 if payload == "1":
@@ -145,20 +140,16 @@ class MqttSubscriber:
                     self._handle_emergency_request(device_id)
                 else:
                     print(f"MQTT Subscriber: Payload non valido per emergenza: '{payload}'")
-            
-            # NUOVO HANDLER PER DATI AMBIENTALI COMBINATI
+        
             elif topic_suffix == MQTT_TOPIC_ENVIRONMENTAL:
                 try:
                     env_data = json.loads(payload)
                     self._handle_environmental_data(device_id, env_data)
                 except json.JSONDecodeError:
                     print(f"MQTT Subscriber: Payload dati ambientali non valido (non è JSON): '{payload}'")
-                except Exception as e:
-                    print(f"MQTT Subscriber: Errore nella gestione dei dati ambientali: {e}")
-    
         except Exception as e:
-            print(f"MQTT Subscriber: Errore nella gestione del messaggio: {e}")
-            
+            print(f"MQTT Subscriber: Errore nella gestione dei dati ambientali: {e}")
+
     def _process_message(self, client, userdata, msg):
         """Elabora i messaggi MQTT ricevuti."""
         try:
@@ -216,17 +207,70 @@ class MqttSubscriber:
             print(f"Errore nella gestione del messaggio MQTT: {e}")
 
     def _update_door_status(self, dispenser_id, payload):
-        """Aggiorna lo stato della porta del dispenser."""
+        """Aggiorna lo stato della porta del dispenser nel formato {"door":0,"time":"10:18:27"}"""
         try:
-            # CORREZIONE: il payload è già una stringa, non un dizionario
-            state = payload  # "open" o "closed"
-            timestamp = datetime.now()
+            # Parsing del payload
+            try:
+                data = json.loads(payload)
+                door_value = data.get("door")
+                time_str = data.get("time")
+                
+                # Converti il valore numerico in stato testuale
+                if door_value == 1:
+                    state = "open"
+                elif door_value == 0:
+                    state = "closed"
+                else:
+                    print(f"MQTT Subscriber: Valore porta non valido: {door_value}")
+                    return
+                    
+                # Crea timestamp completo
+                if time_str:
+                    # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    timestamp = datetime.fromisoformat(f"{today}T{time_str}")
+                else:
+                    timestamp = datetime.now()
+            except json.JSONDecodeError:
+                print(f"MQTT Subscriber: Formato payload non valido per evento porta: '{payload}'")
+                return
+            except ValueError as e:
+                print(f"MQTT Subscriber: Errore nel parsing dell'orario: {e}")
+                timestamp = datetime.now()
+        
+            # Genera timestamp ISO
+            timestamp_iso = timestamp.isoformat()
+            
+            # Prepara il nuovo evento porta
+            new_door_event = {
+                "state": state,
+                "timestamp": timestamp_iso
+            }
+            
+            # Ottieni gli eventi esistenti
+            dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
+            if not dispenser:
+                print(f"Dispenser {dispenser_id} non trovato nel database")
+                return
+                
+            door_events = dispenser.get("data", {}).get("door_events", [])
+            if not door_events:
+                door_events = []
+                
+            # Aggiungi il nuovo evento mantenendo una lista FIFO
+            door_events.append(new_door_event)
+            
+            # Limita il numero massimo di eventi memorizzati (conserva gli ultimi 1000)
+            MAX_DOOR_EVENTS = 1000
+            while len(door_events) > MAX_DOOR_EVENTS:
+                door_events.pop(0)
             
             # Aggiorna il documento nel database
             update_operation = {
                 "$set": {
                     "data.door_status": state,
-                    "data.last_door_event": timestamp.isoformat()
+                    "data.last_door_event": timestamp_iso,
+                    "data.door_events": door_events
                 }
             }
             self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
@@ -239,13 +283,16 @@ class MqttSubscriber:
                 dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
                 
                 for dt_id in dts_with_dispenser:
-                    dt = self.dt_factory.get_dt_instance(dt_id)
-                    if dt:
-                        # Ottieni e notifica il servizio DoorEventService se esiste
-                        door_service = dt.get_service("DoorEventService")
-                        if door_service:
-                            door_service.door_state_changed(dispenser_id, state, timestamp)
-                            
+                    try:
+                        dt = self.dt_factory.get_dt_instance(dt_id)
+                        if dt:
+                            # Ottieni e notifica il servizio DoorEventService se esiste
+                            door_service = dt.get_service("DoorEventService")
+                            if door_service:
+                                door_service.door_state_changed(dispenser_id, state, timestamp)
+                    except Exception as e:
+                        print(f"Errore nell'aggiornamento dello stato porta per DT {dt_id}: {e}")
+            
         except Exception as e:
             print(f"Errore nell'aggiornamento dello stato porta per dispenser {dispenser_id}: {e}")
 
@@ -442,7 +489,7 @@ class MqttSubscriber:
             # Sottoscrivi ai topic necessari usando le variabili di configurazione
             self.client.subscribe([
                 (f"+/{MQTT_TOPIC_TAKEN}", 0),             # Monitoraggio assunzione medicinali
-                (f"+/{MQTT_TOPIC_DOOR_STATUS}", 0),       # Stato della porta del dispenser
+                (f"+/{MQTT_TOPIC_DOOR}", 0),               # Stato della porta del dispenser
                 (f"+/{MQTT_TOPIC_EMERGENCY}", 0),         # Topic per richieste di emergenza
                 (f"+/{MQTT_TOPIC_ENVIRONMENTAL}", 0),     # Topic per dati ambientali combinati
                 (f"+/{MQTT_TOPIC_ASSOC}", 0),             # Topic per associazione dispositivi

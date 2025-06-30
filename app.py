@@ -90,11 +90,13 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("add_dispenser_dt", add_dispenser_to_dt_handler))
     application.add_handler(CommandHandler("dt_devices", list_dt_devices_handler))
     application.add_handler(CommandHandler("check_alerts", check_irregularities_handler))
-    
-    # Nuovo handler per dati ambientali
+
+    # Handler per dati ambientali e eventi porta
     from src.application.bot.handlers.environmental_handlers import show_environmental_data_handler, set_environmental_limits_handler
+    from src.application.bot.handlers.door_handlers import show_door_events_handler
     application.add_handler(CommandHandler("env_data", show_environmental_data_handler))
     application.add_handler(CommandHandler("set_env_limits", set_environmental_limits_handler))
+    application.add_handler(CommandHandler("door_events", show_door_events_handler))
     
     # Echo handler (non-command messages)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_handler))

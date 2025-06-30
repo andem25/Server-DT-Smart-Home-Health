@@ -52,7 +52,9 @@ except Exception as e:
 
 # MQTT Topics
 MQTT_TOPIC_TAKEN = os.getenv("MQTT_TOPIC_TAKEN", "taken")
-MQTT_TOPIC_DOOR_STATUS = os.getenv("MQTT_TOPIC_DOOR_STATUS", "door/status")
+# Rimuoviamo MQTT_TOPIC_DOOR_STATUS perché useremo solo il nuovo formato
+# MQTT_TOPIC_DOOR_STATUS = os.getenv("MQTT_TOPIC_DOOR_STATUS", "door/status")
+MQTT_TOPIC_DOOR = os.getenv("MQTT_TOPIC_DOOR", "door")
 MQTT_TOPIC_EMERGENCY = os.getenv("MQTT_TOPIC_EMERGENCY", "emergency")
 MQTT_TOPIC_ENVIRONMENTAL = os.getenv("MQTT_TOPIC_ENVIRONMENTAL", "environmental_data")
 MQTT_TOPIC_ASSOC = os.getenv("MQTT_TOPIC_ASSOC", "assoc")
