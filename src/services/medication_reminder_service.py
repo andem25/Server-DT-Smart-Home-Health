@@ -68,11 +68,9 @@ class MedicationReminderService(BaseService):
             start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
             end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
             
-            # Calcola l'orario di notifica (metà dell'intervallo)
-            notification_time = start_dt + (end_dt - start_dt) / 2
-            
-            # Se l'ora corrente è entro 1 minuto dall'orario di notifica
-            time_diff = (now - notification_time).total_seconds()
+            # MODIFICA: Usa direttamente l'orario di inizio invece di calcolare il punto medio
+            # Calcola la differenza tra l'ora corrente e l'orario di inizio
+            time_diff = (now - start_dt).total_seconds()
             
             # Verifichiamo che non abbiamo già inviato un promemoria per questo dispenser oggi
             last_sent = self.time_based_reminders.get(dispenser_id, {}).get(today_str)
@@ -95,7 +93,6 @@ class MedicationReminderService(BaseService):
         dispenser_id = dispenser.get("_id")
         user_db_id = dispenser.get("user_db_id")
         medicine_name = dispenser.get("data", {}).get("medicine_name", "medicinale")
-        dosage = dispenser.get("data", {}).get("dosage", "")
         
         # Dettagli orario
         medicine_time = dispenser.get("data", {}).get("medicine_time", {})
