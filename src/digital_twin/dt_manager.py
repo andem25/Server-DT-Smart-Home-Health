@@ -113,8 +113,17 @@ class DTManager:
             dt_doc = self.dt_factory.get_dt(dt_id)
             metadata = dt_doc.get("metadata", {})
             metadata['user_id'] = user_id
-            self.dt_factory.update_dt(dt_id, {'metadata': metadata})
+            metadata['active_telegram_ids'] = []  # Assicurati che questo campo sia sempre creato come array
             
+            # Aggiornamento esplicito per assicurare che i metadati siano salvati correttamente
+            dt_collection = self.dt_factory.db_service.db["digital_twins"]
+            dt_collection.update_one(
+                {"_id": dt_id}, 
+                {"$set": {"metadata": metadata}}
+            )
+            
+            print(f"DEBUG CREATE_DT: Metadata inizializzati con active_telegram_ids=[] per DT {dt_id}")
+
             # Lista dei servizi da aggiungere
             services_to_add = [
                 # FR-1: Medication Reminder

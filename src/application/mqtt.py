@@ -386,7 +386,7 @@ class MqttSubscriber:
             self.db_service.update_dr(
                 "dispenser_medicine", 
                 device_id, 
-                {"$set": {"data.regularity": regularity}}
+                {"$set": {"data.regolarity": regularity}}
             )
             
             print(f"MQTT Subscriber: Aggiornata regolarità per {device_id}: {current_date} {current_time}")
@@ -724,57 +724,73 @@ class MqttSubscriber:
     def _send_generic_emergency_alert(self, device_id):
         """Invia un avviso di emergenza generico quando non c'è un DT associato"""
         try:
-            print(f"DEBUG: Tentativo di invio notifica generica di emergenza per dispositivo {device_id}")
-            
-            # Utilizziamo sempre l'ID Telegram hardcoded per test
-            telegram_id = 157933243  # ID Telegram di esempio
-            
-            # Ottieni il token del bot
-            token = None
-            if self.app:
-                with self.app.app_context():
-                    if "TELEGRAM_BOT" in current_app.config:
-                        from os import environ
-                        token = environ.get('TELEGRAM_TOKEN')
-            
-            if not token:
-                print("DEBUG: Token Telegram non trovato")
+            # Ottieni il dispenser dal database
+            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
+            if not dispenser:
                 return
                 
-            # Invia il messaggio direttamente tramite HTTP
-            import requests
-            message = f"🚨 EMERGENZA RILEVATA dal dispositivo {device_id}! Richiesto intervento immediato."
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            data = {
-                "chat_id": telegram_id,
-                "text": message,
-                "parse_mode": "Markdown"
-            }
+            # Identifica l'utente proprietario
+            user_db_id = dispenser.get("user_db_id")
+            if not user_db_id:
+                return
             
-            print("DEBUG: Invio messaggio diretto tramite API HTTP...")
-            response = requests.post(url, json=data)
-            if response.status_code == 200:
-                print(f"DEBUG: Messaggio inviato con successo: {response.json()}")
-            else:
-                print(f"DEBUG: Errore nell'invio del messaggio: {response.status_code} - {response.text}")
+            # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
+            dt_collection = self.db_service.db["digital_twins"]
+            query = {"metadata.user_id": user_db_id}
+            user_dt_docs = list(dt_collection.find(query))
+            
+            # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
+            all_telegram_ids = set()
+            for dt_doc in user_dt_docs:
+                metadata = dt_doc.get("metadata", {})
+                active_ids = metadata.get("active_telegram_ids", [])
+                for id_val in active_ids:
+                    try:
+                        all_telegram_ids.add(int(id_val))
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Se non ci sono ID, usa l'ID di fallback
+            if not all_telegram_ids:
+                all_telegram_ids = {157933243}
+                print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
+            
+            # Prepara il messaggio
+            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
+            message = (
+                f"🚨 *ALLARME EMERGENZA*!\n\n"
+                f"⚠️ *RICHIESTA DI AIUTO* dal dispositivo *{dispenser_name}* (`{device_id}`)\n\n"
+                f"*Intervento richiesto immediatamente.*"
+            )
+            
+            # Ottieni il token del bot dalle variabili d'ambiente
+            from os import environ
+            token = environ.get('TELEGRAM_TOKEN')
+            
+            if token:
+                # Invia a tutti gli ID recuperati
+                import requests
+                for telegram_id in all_telegram_ids:
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
+                    data = {
+                        "chat_id": telegram_id,
+                        "text": message,
+                        "parse_mode": "Markdown"
+                    }
+                    
+                    response = requests.post(url, json=data)
+                    if response.status_code == 200:
+                        print(f"Notifica di emergenza generica inviata all'ID Telegram: {telegram_id}")
+                    else:
+                        print(f"Errore nell'invio notifica generica: {response.status_code}")
                 
         except Exception as e:
-            print(f"ERRORE nell'invio dell'avviso di emergenza generico: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Errore nell'invio dell'avviso di emergenza generico: {e}")
     
     
     def _send_environmental_alert(self, device_id, measure_type, value, unit, min_value, max_value):
         """
         Invia una notifica di allarme ambientale all'utente
-        
-        Args:
-            device_id (str): ID del dispositivo
-            measure_type (str): Tipo di misura (temperatura/umidità)
-            value (float): Valore rilevato
-            unit (str): Unità di misura
-            min_value (float): Valore minimo accettabile
-            max_value (float): Valore massimo accettabile
         """
         try:
             dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
@@ -808,36 +824,19 @@ class MqttSubscriber:
                 f"🌡️ Rilevato valore di {measure_type} {status}!\n"
                 f"📊 Valore: *{value}{unit}*\n"
                 f"🔍 Intervallo sicuro: {min_value}-{max_value}{unit}\n"
-                f"📱 Dispositivo: {dispenser_name}\n"
+                f"📱 Dispositivo: *{dispenser_name}*\n"
                 f"🏠 Posizione: {dt_name}\n\n"
                 f"👉 Si consiglia di verificare le condizioni ambientali."
             )
             
-            # Invia il messaggio con API Telegram
-            if self.app:
-                with self.app.app_context():
-                    from os import environ
-                    token = environ.get('TELEGRAM_TOKEN')
-                    
-                    if token:
-                        # Qui dovresti avere un modo per ottenere l'ID Telegram dell'utente
-                        # Per ora usiamo un ID hardcoded di test
-                        telegram_id = 157933243  # ID Telegram di esempio
-                        
-                        import requests
-                        url = f"https://api.telegram.org/bot{token}/sendMessage"
-                        data = {
-                            "chat_id": telegram_id,
-                            "text": message,
-                            "parse_mode": "Markdown"
-                        }
-                        
-                        response = requests.post(url, json=data)
-                        if response.status_code == 200:
-                            print(f"Notifica ambientale inviata all'utente {telegram_id}")
-                        else:
-                            print(f"Errore nell'invio della notifica: {response.status_code}")
-                            
+            # Invia la notifica a tutti gli utenti attivi del DT
+            if dts_with_dispenser:
+                dt_id = dts_with_dispenser[0]
+                self._send_notification_to_dt_users(dt_id, message)
+            else:
+                # Se non c'è un DT associato, usa la funzione di fallback
+                self._send_generic_emergency_alert(device_id)
+                
         except Exception as e:
             print(f"Errore nell'invio dell'allarme ambientale: {e}")
     
@@ -886,78 +885,188 @@ class MqttSubscriber:
     def _send_door_irregularity_alert(self, device_id, state, timestamp, event_details):
         """
         Invia una notifica all'utente quando si verifica un'apertura/chiusura porta irregolare
-        
-        Args:
-            device_id (str): ID del dispenser
-            state (str): Stato della porta ("open" o "closed")
-            timestamp (datetime): Momento dell'evento
-            event_details (dict): Dettagli aggiuntivi sull'evento
         """
         try:
-            # Ottieni il dispenser
+            # Ottieni il dispenser dal database
             dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
             if not dispenser:
-                print(f"Dispenser {device_id} non trovato per invio notifica porta irregolare")
                 return
                 
-            # Prepara i dettagli per la notifica
-            dispenser_name = dispenser.get("data", {}).get("name", f"Dispenser {device_id}")
+            # Ottieni i dettagli del dispenser
+            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
+            
+            # Trova il Digital Twin associato al dispositivo
+            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
+            dt_name = "Casa"  # Default
+            
+            if dts_with_dispenser:
+                dt_id = dts_with_dispenser[0]  # Prendiamo il primo DT associato
+                dt = self.dt_factory.get_dt(dt_id)
+                if dt:
+                    dt_name = dt.get("name", "Casa")
+        
+            # Costruisci il messaggio di notifica
             time_str = timestamp.strftime("%H:%M:%S")
             date_str = timestamp.strftime("%d/%m/%Y")
+            action = "aperta" if state == "open" else "chiusa"
             
-            # Ottieni l'orario configurato per contestualizzare il messaggio
-            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
-            time_window = ""
-            if medicine_time and medicine_time.get("start") and medicine_time.get("end"):
-                time_window = f" (orario corretto: {medicine_time.get('start')} - {medicine_time.get('end')})"
+            reason = event_details.get("reason", "fuori orario")
+            if reason == "outside_schedule":
+                reason = "fuori dall'orario di assunzione"
+            elif reason == "multiple_openings":
+                reason = "aperture multiple ravvicinate"
+        
+            message = (
+                f"🚪 *APERTURA PORTA IRREGOLARE*\n\n"
+                f"⚠️ La porta del dispenser *{dispenser_name}* è stata {action} *in modo irregolare*!\n"
+                f"⏰ Orario: {time_str} del {date_str}\n"
+                f"📍 Posizione: {dt_name}\n"
+                f"❓ Motivo: {reason}\n\n"
+                f"👉 Si consiglia di verificare la situazione."
+            )
             
-            # Prepara il messaggio di notifica
-            action = "apertura" if state == "open" else "chiusura"
-            message = f"⚠️ *Evento porta irregolare*\n\n"
-            message += f"📌 *{dispenser_name}*\n"
-            message += f"🚪 *{action.capitalize()} fuori orario* rilevata alle {time_str} del {date_str}{time_window}\n"
-            message += f"❗ Questa operazione è avvenuta al di fuori dell'orario di assunzione configurato."
-            
-            # SOLO PER TEST: Usa un ID Telegram hardcoded
-            telegram_id = 157933243  # ID Telegram per test
-            print(f"DEBUG: Utilizzo ID Telegram di test {telegram_id} per notifica porta")
-            
-            # Utilizza l'istanza del bot esistente nella configurazione dell'app
-            if self.app:
-                with self.app.app_context():
-                    # Ottieni l'istanza del bot esistente
-                    bot = self.app.config.get('TELEGRAM_BOT')
-                    
-                    if bot:
-                        # Usa il bot esistente per inviare il messaggio
-                        import asyncio
-                        asyncio.run(bot.send_message(
-                            chat_id=telegram_id,
-                            text=message,
-                            parse_mode="Markdown"
-                        ))
-                        print(f"Notifica irregolarità porta inviata all'ID Telegram: {telegram_id}")
-                    else:
-                        print("Istanza del bot non trovata nella configurazione dell'app")
-                        
-                    # Registra notifica inviata nel database
-                    notification = {
-                        "type": "door_irregolarity",
-                        "device_id": device_id,
-                        "timestamp": timestamp.isoformat(),
-                        "state": state,
-                        "message": message
-                    }
-                    
-                    self.db_service.update_dr(
-                        "dispenser_medicine",
-                        device_id,
-                        {"$push": {"data.notifications": notification}}
-                    )
+            # Invia la notifica a tutti gli utenti attivi del DT
+            if dts_with_dispenser:
+                dt_id = dts_with_dispenser[0]
+                self._send_notification_to_dt_users(dt_id, message)
             else:
-                print("Impossibile inviare notifica: contesto Flask non disponibile")
-                
+                # Se non c'è un DT associato, usa la funzione di fallback
+                self._send_generic_emergency_alert(device_id)
+            
         except Exception as e:
-            print(f"Errore nell'invio della notifica di irregolarità porta: {e}")
+            print(f"Errore nell'invio dell'allarme porta irregolare: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _send_adherence_notification(self, device_id, message_type, details):
+        """
+        Invia una notifica all'utente relativa all'aderenza alle terapie
+        """
+        try:
+            # Ottieni il dispenser dal database
+            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
+            if not dispenser:
+                return
+                
+            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
+            medicine_name = dispenser.get("data", {}).get("medicine_name", "Medicinale")
+            
+            # Trova il Digital Twin associato al dispositivo
+            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
+            
+            # Costruisci il messaggio di notifica in base al tipo
+            if message_type == "missed_dose":
+                message = (
+                    f"💊 *DOSE MANCATA*\n\n"
+                    f"⚠️ Non è stata registrata l'assunzione di *{medicine_name}* dal dispenser *{dispenser_name}*\n"
+                    f"⏰ Era prevista alle: {details.get('scheduled_time', 'orario non specificato')}\n\n"
+                    f"👉 Ricorda di assumere il medicinale il prima possibile."
+                )
+            elif message_type == "low_adherence":
+                message = (
+                    f"📊 *BASSA ADERENZA RILEVATA*\n\n"
+                    f"⚠️ L'aderenza alla terapia con *{medicine_name}* è sotto il {details.get('adherence_rate', 0)}%\n"
+                    f"📱 Dispenser: *{dispenser_name}*\n\n"
+                    f"👉 Ricorda l'importanza di seguire regolarmente la terapia prescritta."
+                )
+            else:
+                message = (
+                    f"ℹ️ *NOTIFICA ADERENZA*\n\n"
+                    f"{details.get('custom_message', 'Messaggio relativo all\'aderenza alla terapia')}\n"
+                    f"📱 Dispenser: *{dispenser_name}*"
+                )
+        
+            # Invia la notifica a tutti gli utenti attivi del DT
+            if dts_with_dispenser:
+                dt_id = dts_with_dispenser[0]
+                self._send_notification_to_dt_users(dt_id, message)
+            else:
+                # Se non c'è un DT associato, usa la funzione di fallback
+                from os import environ
+                token = environ.get('TELEGRAM_TOKEN')
+                
+                if token:
+                    # ID di fallback
+                    telegram_id = 157933243
+                    
+                    import requests
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
+                    data = {
+                        "chat_id": telegram_id,
+                        "text": message,
+                        "parse_mode": "Markdown"
+                    }
+                    
+                    response = requests.post(url, json=data)
+                    if response.status_code == 200:
+                        print(f"Notifica aderenza inviata all'utente {telegram_id} (fallback)")
+                    else:
+                        print(f"Errore nell'invio della notifica: {response.status_code}")
+                
+        except Exception as e:
+            print(f"Errore nell'invio della notifica di aderenza: {e}")
+    
+    def _send_notification_to_dt_users(self, dt_id, message, fallback_id=157933243):
+        """
+        Funzione helper per inviare notifiche a tutti gli ID Telegram attivi di un DT
+        
+        Args:
+            dt_id (str): ID del Digital Twin
+            message (str): Messaggio da inviare
+            fallback_id (int): ID di fallback se non ci sono ID attivi
+        """
+        try:
+            # Ottieni il Digital Twin per accedere agli ID Telegram attivi
+            dt = None
+            if hasattr(self, 'dt_factory') and self.dt_factory:
+                dt = self.dt_factory.get_dt(dt_id)
+        
+            # Ottieni gli ID Telegram attivi dal DT
+            telegram_ids = []
+            if dt and "metadata" in dt and "active_telegram_ids" in dt["metadata"]:
+                # Converti esplicitamente tutti gli ID a int
+                try:
+                    # Gestisci sia liste di stringhe che di interi
+                    telegram_ids = [int(id_val) for id_val in dt["metadata"]["active_telegram_ids"]]
+                    print(f"DEBUG: IDs Telegram trovati per notifica: {telegram_ids}")
+                except (ValueError, TypeError) as e:
+                    print(f"ERRORE nella conversione degli ID Telegram: {e}")
+        
+        # Se non ci sono ID attivi, usa l'ID di fallback
+            if not telegram_ids:
+                telegram_ids = [fallback_id]
+                print(f"ATTENZIONE: Nessun ID Telegram trovato, uso ID di fallback {fallback_id}")
+        
+            # Ottieni il token del bot dalle variabili d'ambiente
+            from os import environ
+            token = environ.get('TELEGRAM_TOKEN')
+        
+            if not token:
+                print("ERRORE: Token Telegram non trovato per notifica")
+                return
+        
+            # Invia il messaggio a tutti gli ID Telegram attivi
+            import requests
+            successful_sends = 0
+            for telegram_id in telegram_ids:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                data = {
+                    "chat_id": telegram_id,
+                    "text": message,
+                    "parse_mode": "Markdown"
+                }
+                
+                response = requests.post(url, json=data)
+                if response.status_code == 200:
+                    print(f"Notifica inviata all'ID Telegram: {telegram_id}")
+                    successful_sends += 1
+                else:
+                    print(f"Errore nell'invio notifica a {telegram_id}: {response.status_code} - {response.text}")
+        
+            return successful_sends
+                
+        except Exception as e:
+            print(f"Errore nell'invio della notifica: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0

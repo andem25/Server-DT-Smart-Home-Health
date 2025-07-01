@@ -10,7 +10,7 @@ import threading
 from src.digital_twin.dt_factory import DTFactory
 from src.digital_twin.dt_manager import DTManager
 
-from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler
+from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler, show_dt_telegram_ids_handler
 from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler, check_irregularities_handler
 from src.application.bot.handlers.message_handlers import send_message_to_dispenser_handler
 from src.services.scheduler_service import SchedulerService
@@ -90,7 +90,8 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("add_dispenser_dt", add_dispenser_to_dt_handler))
     application.add_handler(CommandHandler("dt_devices", list_dt_devices_handler))
     application.add_handler(CommandHandler("check_alerts", check_irregularities_handler))
-
+    application.add_handler(CommandHandler("dt_ids", show_dt_telegram_ids_handler))  # Nuovo handler
+    
     # Handler per dati ambientali e eventi porta
     from src.application.bot.handlers.environmental_handlers import show_environmental_data_handler, set_environmental_limits_handler
     from src.application.bot.handlers.door_handlers import show_door_events_handler

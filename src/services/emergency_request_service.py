@@ -76,8 +76,41 @@ class EmergencyRequestService(BaseService):
     def _send_emergency_notification(self, device_id, dt_id, dt_name):
         """Invia notifica di emergenza ai contatti configurati"""
         try:
-            # Ottieni i supervisori di questo DT
-            supervisors = self._get_dt_supervisors(dt_id)
+            # Ottieni il Digital Twin per accedere agli ID Telegram attivi
+            dt = None
+            if self.dt_factory:
+                dt = self.dt_factory.get_dt(dt_id)
+            
+            # Ottieni gli ID Telegram attivi dal DT
+            telegram_ids = []
+            if dt and "metadata" in dt and "active_telegram_ids" in dt["metadata"]:
+                # Converti esplicitamente tutti gli ID a int
+                try:
+                    # Gestisci sia liste di stringhe che di interi
+                    telegram_ids = [int(id_val) for id_val in dt["metadata"]["active_telegram_ids"]]
+                    print(f"DEBUG: IDs Telegram trovati per emergenza: {telegram_ids}")
+                except (ValueError, TypeError) as e:
+                    print(f"ERRORE nella conversione degli ID Telegram: {e}")
+            
+            # Se non ci sono ID attivi, usa i supervisori come fallback
+            if not telegram_ids:
+                supervisors = self._get_dt_supervisors(dt_id)
+                for supervisor in supervisors:
+                    if "telegram_id" in supervisor:
+                        telegram_ids.append(supervisor["telegram_id"])
+            
+            # Se ancora non ci sono ID, usa l'ID di test come ultima risorsa
+            if not telegram_ids:
+                telegram_ids = [157933243]  # ID di fallback solo come ultima risorsa
+                print(f"ATTENZIONE: Nessun ID Telegram trovato per il DT {dt_id}, uso ID di fallback")
+            
+            # Prepara il messaggio
+            message = (
+                f"🚨 *ALLARME EMERGENZA*!\n\n"
+                f"⚠️ *RICHIESTA DI AIUTO* dal dispositivo `{device_id}`\n"
+                f"📍 Appartiene alla casa: *{dt_name}*\n\n"
+                f"*Intervento richiesto immediatamente.*"
+            )
             
             # Ottieni il token del bot dalle variabili d'ambiente
             from os import environ
@@ -87,17 +120,10 @@ class EmergencyRequestService(BaseService):
                 print("DEBUG: Token Telegram non trovato per notifica di emergenza")
                 return
             
-            # Invia messaggio diretto a tutti i supervisori
+            # Invia messaggio a tutti gli ID Telegram attivi
             import requests
-            for supervisor in supervisors:
-                telegram_id = supervisor['telegram_id']
-                message = (
-                    f"🚨 *ALLARME EMERGENZA*!\n\n"
-                    f"⚠️ *RICHIESTA DI AIUTO* dal dispositivo `{device_id}`\n"
-                    f"📍 Appartiene alla casa: *{dt_name}*\n\n"
-                    f"*Intervento richiesto immediatamente.*"
-                )
-                
+            successful_sends = 0
+            for telegram_id in telegram_ids:
                 url = f"https://api.telegram.org/bot{token}/sendMessage"
                 data = {
                     "chat_id": telegram_id,
@@ -107,14 +133,18 @@ class EmergencyRequestService(BaseService):
                 
                 response = requests.post(url, json=data)
                 if response.status_code == 200:
-                    print(f"Notifica di emergenza inviata a {supervisor['username']}")
+                    print(f"Notifica di emergenza inviata all'ID Telegram: {telegram_id}")
+                    successful_sends += 1
                 else:
                     print(f"Errore nell'invio notifica: {response.status_code} - {response.text}")
-                    
+            
+            return successful_sends
+                
         except Exception as e:
             print(f"Errore nell'invio della notifica di emergenza: {e}")
             import traceback
             traceback.print_exc()
+            return 0
         
     def _get_dt_supervisors(self, dt_id):
         """Recupera tutti i supervisori associati al Digital Twin"""
