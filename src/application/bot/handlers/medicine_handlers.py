@@ -63,14 +63,22 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
     # Callback per gestire i messaggi MQTT in arrivo
     def on_mqtt_message(client, userdata, msg):
         nonlocal mqtt_message_value
-        if msg.topic == f"{dispenser_id}/{MQTT_TOPIC_ASSOC}":
-            try:
-                payload = msg.payload.decode('utf-8').strip()
-                print(f"MQTT: Ricevuto '{payload}' sul topic '{msg.topic}'")
-                mqtt_message_value = payload
-                mqtt_response_received.set()  # Segnala che il messaggio è arrivato
-            except Exception as e:
-                print(f"Errore nella gestione del messaggio MQTT: {e}")
+        try:
+            payload = msg.payload.decode('utf-8').strip()
+            print(f"MQTT: Ricevuto messaggio '{payload}' sul topic '{msg.topic}'")
+            
+            # Aggiorna il valore del messaggio
+            mqtt_message_value = payload
+            
+            # Importante: imposta l'evento SOLO se il messaggio è "1"
+            # Questo sblocca immediatamente l'attesa senza aspettare altri messaggi
+            if payload == "1":
+                mqtt_response_received.set()
+                print(f"MQTT: Confermata associazione per {dispenser_id}")
+            else:
+                print(f"MQTT: Messaggio '{payload}' non valido per associazione, continuo ad attendere...")
+        except Exception as e:
+            print(f"MQTT: Errore nell'elaborazione del messaggio: {e}")
     
     # Configura il client MQTT temporaneo per questa operazione
     mqtt_subscriber = current_app.config.get('MQTT_SUBSCRIBER')
@@ -91,15 +99,30 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
         
         # Aspetta il messaggio MQTT per 30 secondi
         try:
-            await asyncio.wait_for(mqtt_response_received.wait(), timeout=30.0)
+            # Invece di aspettare il timeout completo anche quando riceviamo il messaggio
+            # controlliamo periodicamente se l'evento è stato impostato
+            start_time = asyncio.get_event_loop().time()
+            max_wait = 30.0  # Timeout massimo in secondi
+            check_interval = 0.5  # Controlla ogni mezzo secondo
             
+            while not mqtt_response_received.is_set():
+                # Aspetta un breve intervallo
+                await asyncio.sleep(check_interval)
+                
+                # Controlla se abbiamo superato il timeout
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed > max_wait:
+                    await update.message.reply_text(f"⏱️ Timeout: nessuna conferma ricevuta dal dispenser entro 30 secondi. Operazione annullata.")
+                    return
+            
+            # Se siamo usciti dal ciclo, l'evento è stato impostato
             # Verifica se il messaggio ricevuto è "1"
             if mqtt_message_value != "1":
                 await update.message.reply_text(f"❌ Ricevuta risposta non valida dal dispenser. Operazione annullata.")
                 return
                 
-        except asyncio.TimeoutError:
-            await update.message.reply_text(f"⏱️ Timeout: nessuna conferma ricevuta dal dispenser entro 30 secondi. Operazione annullata.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Errore durante l'attesa della conferma: {e}")
             return
     finally:
         # Ripristina la gestione messaggi originale e annulla la sottoscrizione
