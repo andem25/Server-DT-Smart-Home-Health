@@ -24,7 +24,7 @@ MQTT_PASSWORD = MQTT_PASSWORD
 
 
 # --- Funzione di utilità per inviare messaggi MQTT ---
-def send_mqtt_message(message: str, topic: str = MQTT_TOPIC_LED_STATES, qos: int = 2):
+def send_mqtt_message(message: str, topic: str, qos: int = 2):
     """
     Funzione helper per inviare un singolo messaggio MQTT.
     
@@ -32,47 +32,44 @@ def send_mqtt_message(message: str, topic: str = MQTT_TOPIC_LED_STATES, qos: int
         message: Messaggio da inviare
         topic: Topic su cui pubblicare
         qos: Quality of Service (0, 1 o 2), default 2 (exactly once)
+    
+    Returns:
+        bool: True se l'invio è avvenuto con successo, False altrimenti
     """
+    import paho.mqtt.client as mqtt
+    import ssl
+    from config.settings import MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD
+    
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
     client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.tls_set(cert_reqs=ssl.CERT_NONE)
     client.tls_insecure_set(True)
-
-    connection_successful = False
+    
     try:
-        print(f"MQTT Sender: Tentativo di connessione a {BROKER_URL}:{BROKER_PORT} per invio...")
-        client.connect(BROKER_URL, BROKER_PORT, 60)
-        connection_successful = True
+        print(f"MQTT: Connessione a {MQTT_BROKER}:{MQTT_PORT}...")
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()
-
-        try:
-            payload = int(message)
-        except ValueError:
-            payload = message
-
-        print(f"MQTT Sender: Tentativo invio '{payload}' su topic '{topic}' con QoS {qos}...")
-        result = client.publish(topic, payload, qos=qos)
-        print(f"MQTT Sender: Messaggio messo in coda per l'invio (mid={result.mid}). In attesa di conferma...")
-        result.wait_for_publish(timeout=10)
-
-        if result.is_published():
-            print(f"MQTT Sender: Messaggio (mid={result.mid}) pubblicato con successo.")
+        
+        print(f"MQTT: Invio messaggio '{message}' su '{topic}'")
+        result = client.publish(topic, message, qos=qos)
+        result.wait_for_publish(timeout=5)
+        
+        success = result.is_published()
+        if success:
+            print(f"MQTT: Messaggio inviato con successo")
         else:
-            print(f"MQTT Sender: Invio messaggio (mid={result.mid}) fallito o timeout.")
-
-    except ConnectionRefusedError:
-        print(f"MQTT Sender: Errore - Connessione rifiutata. Controlla indirizzo, porta e credenziali.")
-    except ssl.SSLError as e:
-        print(f"MQTT Sender: Errore SSL - {repr(e)}. Controlla la configurazione TLS/SSL.")
-    except OSError as e:
-        print(f"MQTT Sender: Errore di rete - {repr(e)}. Controlla la connessione e l'indirizzo del broker.")
+            print(f"MQTT: Invio fallito o timeout")
+        
+        return success
     except Exception as e:
-        print(f"MQTT Sender: Errore imprevisto durante l'invio: {repr(e)}")
+        print(f"MQTT: Errore di connessione/invio: {repr(e)}")
+        return False
     finally:
-        if connection_successful:
+        try:
             client.loop_stop()
             client.disconnect()
-            print("MQTT Sender: Disconnesso.")
+        except:
+            pass
 
 
 

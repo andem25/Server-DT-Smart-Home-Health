@@ -209,7 +209,7 @@ def main():
         application.bot_data['schema_registry'] = schema_registry
 
         # Inizializza e avvia lo scheduler dei servizi DT
-        scheduler_service = SchedulerService(dt_factory, db_service, interval=30)  # Controlla ogni 30 secondi
+        scheduler_service = SchedulerService(dt_factory, db_service, interval=60)  # Aumenta a 60 secondi
         scheduler_service.start()
         
         # Memorizza lo scheduler nella configurazione dell'app

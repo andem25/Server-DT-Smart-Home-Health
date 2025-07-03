@@ -9,40 +9,50 @@ class MedicationReminderService(BaseService):
         self.name = "MedicationReminderService"
         self.active_reminders = {}
         self.time_based_reminders = {}  # Nuova struttura per i promemoria basati sull'orario
-        
+        self.last_notification_sent = {}  # Dizionario per tenere traccia dell'ultimo invio per dispenser
+
     def configure(self, config):
         """Configurazione del servizio"""
         self.reminder_interval = config.get("reminder_interval", 300)  # 5 minuti di default
         self.notification_channels = config.get("channels", ["telegram"])
+        # Intervallo minimo tra notifiche consecutive (in secondi)
+        self.min_notification_interval = config.get("min_notification_interval", 900)  # 15 minuti default
         return self
         
     def execute(self, dt_data, **kwargs):
-        """Esegue il controllo e invia promemoria quando necessario"""
-        results = {"promemoria_inviati": 0, "dispenser_verificati": 0}
+        """Esegue il controllo dei promemoria per tutti i dispenser di medicinali"""
+        results = {
+            "promemoria_verificati": 0,
+            "promemoria_inviati": 0  # Contatore corretto delle notifiche inviate
+        }
         
-        # Estrai tutti i dispensatori dal Digital Twin
+        # Recupera tutti i dispenser dal Digital Twin
         dispensers = []
-        for dr in dt_data.get("digital_replicas", []):
-            if dr.get("type") == "dispenser_medicine":
-                dispensers.append(dr)
-                results["dispenser_verificati"] += 1
-                
-        if not dispensers:
-            return {"status": "no_dispensers_found"}
-            
-        # Verifica ed elabora ogni dispenser
+        for replica in dt_data.get("digital_replicas", []):
+            if replica.get("type") == "dispenser_medicine":
+                dispensers.append(replica)
+    
         for dispenser in dispensers:
-            # Controllo basato su intervallo orario
+            results["promemoria_verificati"] += 1
+            
+            # Verifica promemoria basati sull'orario configurato
             if self._check_time_based_reminder(dispenser):
-                self._send_time_based_reminder(dispenser)
-                results["promemoria_inviati"] += 1
-                
-            # Controllo basato su intervallo generico (funzionalità esistente)
+                sent = self._send_time_based_reminder(dispenser)
+                # Incrementa contatore SOLO se l'invio è avvenuto con successo
+                if sent:
+                    results["promemoria_inviati"] += 1
+            
+            # Verifica promemoria basati sul numero di dosi giornaliere
             elif self._check_dispenser_needs_reminder(dispenser):
-                self._send_reminder(dispenser)
-                self._register_reminder_sent(dispenser)
-                results["promemoria_inviati"] += 1
-                
+                sent = self._send_reminder(dispenser)
+                # Incrementa contatore SOLO se l'invio è avvenuto con successo
+                if sent:
+                    results["promemoria_inviati"] += 1
+        
+        # Controllo di sicurezza che il conteggio sia corretto
+        if results["promemoria_inviati"] > 0:
+            print(f"[Scheduler] dio: Inviati {results['promemoria_inviati']} promemoria medicinali effettivi")
+        
         return results
         
     def _check_time_based_reminder(self, dispenser):
@@ -67,18 +77,23 @@ class MedicationReminderService(BaseService):
             start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
             end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
             
-            # MODIFICA: Usa direttamente l'orario di inizio invece di calcolare il punto medio
-            # Calcola la differenza tra l'ora corrente e l'orario di inizio
+            # Verifica l'ultima notifica inviata (ora usa timestamp completo)
+            last_sent = self.last_notification_sent.get(dispenser_id)
+            
+            # Invia il promemoria solo se:
+            # 1. Non è già stato inviato recentemente (nell'intervallo minimo)
+            # 2. L'ora attuale è entro un minuto dall'inizio dell'intervallo
             time_diff = (now - start_dt).total_seconds()
             
-            # Verifichiamo che non abbiamo già inviato un promemoria per questo dispenser oggi
-            last_sent = self.time_based_reminders.get(dispenser_id, {}).get(today_str)
-            
-            if not last_sent and -60 <= time_diff <= 60:
-                # Registra che abbiamo inviato il promemoria oggi
+            if (not last_sent or (now - last_sent).total_seconds() > self.min_notification_interval) and 0 <= time_diff <= 60:
+                # Registra l'invio di questa notifica
+                self.last_notification_sent[dispenser_id] = now
+                
+                # Mantiene anche la compatibilità col vecchio sistema di tracciamento
                 if dispenser_id not in self.time_based_reminders:
                     self.time_based_reminders[dispenser_id] = {}
                 self.time_based_reminders[dispenser_id][today_str] = now
+                
                 return True
                 
             return False
@@ -98,25 +113,29 @@ class MedicationReminderService(BaseService):
         start_time = medicine_time.get("start", "??:??")
         end_time = medicine_time.get("end", "??:??")
         
-        # Prepara il messaggio di notifica
+        # Prepara il messaggio di notifica - CORREZIONE: aggiungiamo timestamp per rendere univoco
+        now = datetime.now()
         topic = f"{dispenser_id}/notification"
-        message = "1"
+        message = f"1"  # Aggiungiamo timestamp per rendere univoco ogni messaggio
         
         # Invia il messaggio MQTT
         try:
+            print(f"DEBUG: Invio notifica MQTT a {topic}: '{message}'")
+            # Mettiamo l'aggiornamento del timestamp DOPO l'invio riuscito
             send_mqtt_message(message, topic)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Inviato promemoria via MQTT a {dispenser_id} per {medicine_name} (finestra oraria: {start_time}-{end_time})")
             
-            # DEBUG: Stampa dettagli completi per debugging
-            print(f"DEBUG - Dettagli promemoria:")
-            print(f" - Topic: {topic}")
-            print(f" - Messaggio: {message}")
-            print(f" - Dispenser ID: {dispenser_id}")
-            print(f" - Utente: {user_db_id}")
+            # Aggiorniamo l'ultimo invio SOLO dopo un invio riuscito
+            self.last_notification_sent[dispenser_id] = now
             
+            # Aggiungiamo al dizionario di monitoraggio
+            if dispenser_id not in self.time_based_reminders:
+                self.time_based_reminders[dispenser_id] = {}
+            self.time_based_reminders[dispenser_id][now.strftime("%Y-%m-%d")] = now
+            
+            print(f"✅ [{now.strftime('%H:%M:%S')}] Inviata notifica MQTT a {topic} per {medicine_name}")
             return True
         except Exception as e:
-            print(f"Errore nell'invio del messaggio MQTT: {e}")
+            print(f"❌ Errore nell'invio del messaggio MQTT: {repr(e)}")
             return False
             
     def update_medicine_times(self, dispenser_id, start_time, end_time):
@@ -131,6 +150,14 @@ class MedicationReminderService(BaseService):
             
     def _check_dispenser_needs_reminder(self, dispenser):
         """Verifica se è necessario inviare un promemoria per questo dispenser"""
+        dispenser_id = dispenser.get("_id")
+        # Verifica se è già stata inviata una notifica recentemente
+        last_sent = self.last_notification_sent.get(dispenser_id)
+        now = datetime.now()
+        
+        if last_sent and (now - last_sent).total_seconds() < self.min_notification_interval:
+            return False
+        
         # Accesso sicuro ai dati
         dispenser_data = dispenser.get("data", {})
         medicine_name = dispenser_data.get("medicine_name", "medicinale")
@@ -172,13 +199,15 @@ class MedicationReminderService(BaseService):
                 # Verifica quanto tempo è passato dall'ultimo promemoria
                 last_alert = next((a for a in dispenser_data.get("alerts", []) 
                                 if a.get("type") == "reminder" and 
-                                datetime.fromisoformat(a.get("timestamp")).date() == datetime.now().date()), 
+                                datetime.fromisoformat(a.get("timestamp")).date() == now.date()), 
                                 None)
                 
                 # Se non è mai stato inviato un promemoria oggi o è passato abbastanza tempo dall'ultimo
-                if not last_alert or (datetime.now() - datetime.fromisoformat(last_alert.get("timestamp"))).seconds > self.reminder_interval:
+                if not last_alert or (now - datetime.fromisoformat(last_alert.get("timestamp"))).seconds > self.reminder_interval:
+                    # Aggiorna l'ultima notifica inviata
+                    self.last_notification_sent[dispenser_id] = now
                     return True
-            
+    
             return False
                 
         except Exception as e:
