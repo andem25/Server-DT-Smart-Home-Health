@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from .config_loader import ConfigLoader # <-- Importa ConfigLoader
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)  # Scommenta questa riga
 
 # Bot Configuration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -52,11 +52,12 @@ except Exception as e:
 
 # MQTT Topics
 MQTT_TOPIC_TAKEN = os.getenv("MQTT_TOPIC_TAKEN", "taken")
-# Rimuoviamo MQTT_TOPIC_DOOR_STATUS perché useremo solo il nuovo formato
-# MQTT_TOPIC_DOOR_STATUS = os.getenv("MQTT_TOPIC_DOOR_STATUS", "door/status")
 MQTT_TOPIC_DOOR = os.getenv("MQTT_TOPIC_DOOR", "door")
 MQTT_TOPIC_EMERGENCY = os.getenv("MQTT_TOPIC_EMERGENCY", "emergency")
 MQTT_TOPIC_ENVIRONMENTAL = os.getenv("MQTT_TOPIC_ENVIRONMENTAL", "environmental_data")
 MQTT_TOPIC_ASSOC = os.getenv("MQTT_TOPIC_ASSOC", "assoc")
 MQTT_TOPIC_LED_STATES = os.getenv("MQTT_TOPIC_LED_STATES", "all_devices/led_states")
 MQTT_TOPIC_NOTIFICATION = os.getenv("MQTT_TOPIC_NOTIFICATION", "notification")
+
+# Debug: stampa i valori letti per verifica
+print(f"MQTT Topics caricati: ASSOC={MQTT_TOPIC_ASSOC}, ENV={MQTT_TOPIC_ENVIRONMENTAL}")

@@ -930,9 +930,44 @@ class MqttSubscriber:
                 dt_id = dts_with_dispenser[0]
                 self._send_notification_to_dt_users(dt_id, message)
             else:
-                # Se non c'è un DT associato, usa la funzione di fallback
-                self._send_generic_emergency_alert(device_id)
-            
+                # MODIFICA QUI: invece di inviare un'emergenza, invia direttamente la notifica
+                # agli ID Telegram dell'utente proprietario del dispositivo
+                user_db_id = dispenser.get("user_db_id")
+                if user_db_id:
+                    # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
+                    dt_collection = self.db_service.db["digital_twins"]
+                    query = {"metadata.user_id": user_db_id}
+                    user_dt_docs = list(dt_collection.find(query))
+                    
+                    # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
+                    all_telegram_ids = set()
+                    for dt_doc in user_dt_docs:
+                        metadata = dt_doc.get("metadata", {})
+                        active_ids = metadata.get("active_telegram_ids", [])
+                        for id_val in active_ids:
+                            try:
+                                all_telegram_ids.add(int(id_val))
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    # Se non ci sono ID, usa l'ID di fallback
+                    if not all_telegram_ids:
+                        all_telegram_ids = {157933243}
+                    
+                    # Invia il messaggio di irregolarità (non di emergenza)
+                    from os import environ
+                    token = environ.get('TELEGRAM_TOKEN')
+                    if token:
+                        import requests
+                        for telegram_id in all_telegram_ids:
+                            url = f"https://api.telegram.org/bot{token}/sendMessage"
+                            data = {
+                                "chat_id": telegram_id,
+                                "text": message,
+                                "parse_mode": "Markdown"
+                            }
+                            requests.post(url, json=data)
+    
         except Exception as e:
             print(f"Errore nell'invio dell'allarme porta irregolare: {e}")
             import traceback

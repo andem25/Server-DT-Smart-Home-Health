@@ -4,6 +4,12 @@ from flask import Flask
 from pyngrok import ngrok, conf
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from dotenv import load_dotenv
+
+# Load environment variables first
+load_dotenv(override=True)
+
+
+
 from src.application.mqtt import send_mqtt_message, MqttSubscriber
 import threading
 # Aggiungi dopo l'inizializzazione di mqtt_subscriber
@@ -15,8 +21,6 @@ from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_
 from src.application.bot.handlers.message_handlers import send_message_to_dispenser_handler
 from src.services.scheduler_service import SchedulerService
 
-# Load environment variables first
-load_dotenv()
 
 # Import configurations and handlers
 from config.settings import (
