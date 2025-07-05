@@ -1,7 +1,7 @@
 import bcrypt
 from telegram import Update
 from telegram.ext import ContextTypes
-from src.services.user_service import UserService
+from src.application.user_service import UserService
 from typing import Dict, Set
 
 from telegram.constants import ParseMode

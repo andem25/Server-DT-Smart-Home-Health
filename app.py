@@ -44,7 +44,7 @@ from src.application.bot.handlers.medicine_handlers import (
 )
 
 from src.services.database_service import DatabaseService 
-from src.services.user_service import UserService
+from src.application.user_service import UserService
 from src.virtualization.digital_replica.schema_registry import SchemaRegistry 
 from config.config_loader import ConfigLoader
 
