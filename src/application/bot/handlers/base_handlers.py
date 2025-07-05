@@ -2,9 +2,17 @@ from telegram import Update
 from telegram.ext import ContextTypes
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /start command"""
-    await update.message.reply_text(
-        "Hello! I'm your Telegram bot. How can I help you today?"
+    welcome_text = (
+        "👋 *Benvenuto nello SMART DISPENSER BOT!* 🏠🤖\n\n"
+        "Sono qui per aiutarti a gestire i tuoi dispensatori di medicinali e monitorare la salute nella tua casa intelligente.\n\n"
+        "✅ Registra dispensatori\n"
+        "✅ Monitora l'assunzione dei medicinali\n"
+        "✅ Ricevi notifiche su temperatura e umidità\n"
+        "✅ Controlla accessi e molto altro\n\n"
+        "📚 Usa il comando `/help` per vedere tutte le funzionalità disponibili.\n\n"
+        "Sono felice di aiutarti a prenderti cura della salute dei tuoi cari! 💊❤️"
     )
+    await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler per il comando /help che fornisce una guida dettagliata di tutti i comandi"""
@@ -74,16 +82,29 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Sezione esempi
     help_text += "*📝 ESEMPI DI UTILIZZO*\n"
-    help_text += "1. Registrazione: `/register mario123 password456`\n"
-    help_text += "2. Login: `/login mario123 password456`\n"
-    help_text += "3. Registra dispenser: `/add_dispenser disp1 \"Dispenser Aspirina\"`\n"
-    help_text += "4. Imposta intervallo: `/set_dispenser_interval disp1 08-20`\n"
-    help_text += "5. Crea Digital Twin: `/create_smart_home CasaSmart \"DT per la mia casa\"`\n"
-    help_text += "6. Visualizza DT con `/list_smart_homes` per ottenere il suo `<dt_id>`\n"
-    help_text += "7. Collega dispenser al DT: `/link_dispenser <dt_id> disp1`\n"
-    help_text += "8. Visualizza dispositivi collegati: `/smart_home_devices <dt_id>`\n"
-    help_text += "9. Elimina un Digital Twin: `/delete_smart_home <dt_id>`\n"
-    help_text += "10. Elimina un dispenser: `/delete_dispenser disp1`\n\n"
+    help_text += "*Inizia da qui:*\n"
+    help_text += "1. Registrati: `/register mario123 password456`\n"
+    help_text += "2. Effettua il login: `/login mario123 password456`\n"
+    help_text += "3. Verifica stato: `/status`\n\n"
+    
+    help_text += "*Configurazione dispenser:*\n"
+    help_text += "4. Registra dispenser: `/add_dispenser disp1 \"Aspirina Mattina\"`\n"
+    help_text += "5. Verifica registrazione: `/my_dispensers`\n"
+    help_text += "6. Imposta orario: `/set_dispenser_time disp1 08:00 08:30`\n"
+    help_text += "7. Imposta limiti ambientali: `/set_environment_limits disp1 temp 18 28`\n\n"
+    
+    help_text += "*Creazione Digital Twin:*\n" 
+    help_text += "8. Crea Digital Twin: `/create_smart_home CasaNonna \"DT casa nonna Maria\"`\n"
+    help_text += "9. Elenca i tuoi DT: `/list_smart_homes`\n"
+    help_text += "10. Collega dispenser: `/link_dispenser <dt_id> disp1`\n"
+    help_text += "11. Verifica dispositivi: `/smart_home_devices <dt_id>`\n\n"
+    
+    help_text += "*Monitoraggio e controllo:*\n"
+    help_text += "12. Visualizza dati ambientali: `/environment_data disp1`\n" 
+    help_text += "13. Controlla eventi porta: `/door_history disp1`\n"
+    help_text += "14. Verifica assunzioni: `/dispenser_history disp1`\n"
+    help_text += "15. Invia messaggio: `/send_dispenser_message disp1 \"Ricorda di prendere la medicina\"`\n"
+    help_text += "16. Controlla irregolarità: `/check_smart_home_alerts`\n\n"
     
     # Sezione risoluzione problemi
     help_text += "*🔧 RISOLUZIONE PROBLEMI*\n"
