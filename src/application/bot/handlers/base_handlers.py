@@ -42,7 +42,6 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text += "• `/add_dispenser <id_univoco> <nome>` - Registra un nuovo dispenser\n"
         help_text += "• `/my_dispensers` - Mostra tutti i tuoi dispenser registrati\n"
         help_text += "• `/set_dispenser_time <id_dispenser> <inizio> <fine>` - Imposta orario preciso per assunzione (es: 19:30 20:00)\n"
-        help_text += "• `/dispenser_history <id_dispenser>` - Mostra lo storico assunzioni per un dispenser\n"
         help_text += "• `/send_dispenser_message <id_dispenser> <messaggio>` - Invia un messaggio al dispenser\n"
         help_text += "• `/door_history <id_dispenser> [n|data_inizio data_fine]` - Mostra eventi porta con regolarità\n"
         help_text += "• `/environment_data <id_dispenser> [n|data_inizio data_fine]` - Mostra dati ambientali\n"
@@ -102,9 +101,9 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text += "*Monitoraggio e controllo:*\n"
     help_text += "12. Visualizza dati ambientali: `/environment_data disp1`\n" 
     help_text += "13. Controlla eventi porta: `/door_history disp1`\n"
-    help_text += "14. Verifica assunzioni: `/dispenser_history disp1`\n"
-    help_text += "15. Invia messaggio: `/send_dispenser_message disp1 \"Ricorda di prendere la medicina\"`\n"
-    help_text += "16. Controlla irregolarità: `/check_smart_home_alerts`\n\n"
+    help_text += "14. Invia messaggio: `/send_dispenser_message disp1 \"Ricorda di prendere la medicina\"`\n"
+    help_text += "15. Controlla irregolarità: `/check_smart_home_alerts`\n"
+    help_text += "16. Verifica aderenza settimanale: `/dispenser_adherence <dt_id>`\n\n"
     
     # Sezione risoluzione problemi
     help_text += "*🔧 RISOLUZIONE PROBLEMI*\n"

@@ -194,62 +194,6 @@ async def list_my_medicines_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 
-
-# --- Mostra la regolarità di un dispenser (usando l'ID) ---
-async def show_regularity_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mostra lo storico delle assunzioni usando l'ID univoco del dispenser."""
-    user_db_id = context.user_data.get('user_db_id')
-    if not user_db_id:
-        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
-        return
-
-    if len(context.args) < 1:
-        await update.message.reply_text("❗ Usa: /show_regolarity <dispenser_id>\n(Trovi il <dispenser_id> con /list_my_medicines)")
-        return
-
-    dispenser_id = context.args[0]
-
-    # --- CORREZIONE ACCESSO DB ---
-    try:
-        db: DatabaseService = context.application.bot_data['db_service']
-    except KeyError:
-        await update.message.reply_text("❌ Errore interno: Servizio database non disponibile.")
-        print("Errore critico: 'db_service' non trovato in application.bot_data")
-        return
-    # --- FINE CORREZIONE ---
-
-    try:
-        dispenser = db.get_dr("dispenser_medicine", dispenser_id)
-
-        if not dispenser:
-            await update.message.reply_text(f"❌ Dispenser con ID `{dispenser_id}` non trovato.")
-            return
-
-        if dispenser.get("user_db_id") != user_db_id:
-            await update.message.reply_text("❌ Non sei autorizzato a visualizzare questo dispenser.")
-            return
-
-        regularity_data = dispenser.get("data", {}).get("regularity", [])
-        dispenser_name = dispenser.get("data", {}).get("name", dispenser_id)
-
-        if not regularity_data:
-            await update.message.reply_text(f"ℹ️ Nessuna registrazione di assunzione trovata per '{dispenser_name}' (ID: `{dispenser_id}`).")
-            return
-
-        msg = f"Storico assunzioni per '{dispenser_name}' (ID: `{dispenser_id}`):\n"
-        for entry in sorted(regularity_data, key=lambda x: x.get("date", ""), reverse=True):
-            date_str = entry.get("date", "Data sconosciuta")
-            times_list = entry.get("times", [])
-            times_str = ", ".join(sorted(times_list)) if times_list else "Nessuna assunzione registrata"
-            msg += f"- {date_str}: {times_str}\n"
-
-        await update.message.reply_text(msg)
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Errore durante il recupero della regolarità: {e}")
-        print(f"Errore in show_regolarity_handler: {e}")
-
-
 # --- Mostra l'aderenza settimanale con tick e X per ogni dispenser ---
 async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mostra l'aderenza settimanale ai medicinali per i dispensatori collegati a un Digital Twin specifico."""

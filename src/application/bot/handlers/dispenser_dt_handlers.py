@@ -155,42 +155,54 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
             device_name = device.get('name', 'Nome sconosciuto')
             connected_at = device.get('connected_at', 'Data sconosciuta')
             
+            # Sanitizza i valori per evitare problemi di formattazione Markdown
+            device_name = device_name.replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+            device_id_safe = device_id.replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+            device_type_safe = device_type.replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+            
             # Ottieni dettagli aggiuntivi per i dispenser
             if device_type == 'dispenser_medicine':
                 try:
                     dispenser = dt_factory.db_service.get_dr('dispenser_medicine', device_id)
                     if dispenser:
                         medicine_data = dispenser.get('data', {})
-                        medicine_name = medicine_data.get('medicine_name', 'Nome sconosciuto')
-                        dosage = medicine_data.get('dosage', 'Non specificato')
-                        interval = medicine_data.get('interval', 'Non specificato')
+                        medicine_name = str(medicine_data.get('medicine_name', 'Nome sconosciuto')).replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+                        dosage = str(medicine_data.get('dosage', 'Non specificato')).replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+                        interval = str(medicine_data.get('interval', 'Non specificato')).replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
                         
                         msg += f"*{idx}. {device_name}*\n"
-                        msg += f"  - ID: `{device_id}`\n"
-                        msg += f"  - Tipo: {device_type}\n"
+                        msg += f"  - ID: `{device_id_safe}`\n"
+                        msg += f"  - Tipo: {device_type_safe}\n"
                         msg += f"  - Medicinale: {medicine_name}\n"
                         msg += f"  - Dosaggio: {dosage}\n"
                         msg += f"  - Intervallo: {interval}\n"
                         msg += f"  - Collegato il: {connected_at}\n\n"
                     else:
                         msg += f"*{idx}. {device_name}*\n"
-                        msg += f"  - ID: `{device_id}`\n"
-                        msg += f"  - Tipo: {device_type}\n"
+                        msg += f"  - ID: `{device_id_safe}`\n"
+                        msg += f"  - Tipo: {device_type_safe}\n"
                         msg += f"  - ATTENZIONE: Dettagli non disponibili\n\n"
-                except:
+                except Exception as detail_err:
+                    print(f"Errore nel recupero dettagli dispenser {device_id}: {detail_err}")
                     msg += f"*{idx}. {device_name}*\n"
-                    msg += f"  - ID: `{device_id}`\n"
-                    msg += f"  - Tipo: {device_type}\n"
+                    msg += f"  - ID: `{device_id_safe}`\n"
+                    msg += f"  - Tipo: {device_type_safe}\n"
                     msg += f"  - Errore nel caricamento dei dettagli\n\n"
             else:
                 msg += f"*{idx}. {device_name}*\n"
-                msg += f"  - ID: `{device_id}`\n"
-                msg += f"  - Tipo: {device_type}\n"
+                msg += f"  - ID: `{device_id_safe}`\n"
+                msg += f"  - Tipo: {device_type_safe}\n"
                 msg += f"  - Collegato il: {connected_at}\n\n"
         
+        # Se il messaggio è troppo lungo, tronca e aggiungi una nota
+        if len(msg) > 4000:
+            msg = msg[:3950] + "...\n\n(Troppi dispositivi da mostrare completamente)"
+            
         await update.message.reply_text(msg, parse_mode="Markdown")
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         await update.message.reply_text(f"❌ Errore durante il recupero dei dispositivi: {str(e)}")
         print(f"Errore in list_dt_devices_handler: {e}")
         
