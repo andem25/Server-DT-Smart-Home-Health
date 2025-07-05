@@ -247,7 +247,7 @@ async def show_regularity_handler(update: Update, context: ContextTypes.DEFAULT_
 
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante il recupero della regolarità: {e}")
-        print(f"Errore in show_regularity_handler: {e}")
+        print(f"Errore in show_regolarity_handler: {e}")
 
 
 # --- Mostra l'aderenza settimanale con tick e X per ogni dispenser ---
@@ -261,9 +261,9 @@ async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DE
     # Verifica che l'ID DT sia fornito
     if len(context.args) < 1:
         await update.message.reply_text(
-            "❗ Uso: /adherence_week <dt_id>\n\n"
-            "Esempio: `/adherence_week abc123def456`\n\n"
-            "Usa `/list_dt` per vedere i tuoi Digital Twin disponibili.", 
+            "❗ Uso: /dispenser_adherence <dt_id>\n\n"
+            "Esempio: `/dispenser_adherence abc123def456`\n\n"
+            "Usa `/list_smart_homes` per vedere i tuoi Digital Twin disponibili.", 
             parse_mode=ParseMode.MARKDOWN
         )
         return
@@ -294,25 +294,17 @@ async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DE
             await update.message.reply_text("❌ Non sei autorizzato ad accedere a questo Digital Twin.")
             return
         
-        # CORREZIONE: Usa digital_replicas invece di connected_devices
+        # Usa digital_replicas invece di connected_devices
         digital_replicas = dt.get('digital_replicas', [])
-        print(f"DEBUG DIGITAL REPLICAS: {digital_replicas}")
-        
-        # Controlla se ogni dispositivo ha i campi attesi
-        for i, device in enumerate(digital_replicas):
-            print(f"DEBUG DEVICE {i}: {device}")
-            print(f"DEBUG DEVICE {i} TYPE: {device.get('type')}")
-            print(f"DEBUG DEVICE {i} ID: {device.get('id')}")
         
         # Estrai gli ID dai digital_replicas
         dispenser_ids = [device['id'] for device in digital_replicas 
                          if device.get('type') == 'dispenser_medicine']
-        print(f"DEBUG DISPENSER IDS: {dispenser_ids}")
         
         if not dispenser_ids:
             await update.message.reply_text(
                 f"ℹ️ Il Digital Twin '{dt.get('name', '')}' non ha dispensatori collegati.\n\n"
-                f"Usa `/add_dispenser_dt {dt_id} <dispenser_id>` per collegare un dispensatore.", 
+                f"Usa `/link_dispenser {dt_id} <dispenser_id>` per collegare un dispensatore.", 
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -320,14 +312,9 @@ async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DE
         # Ottieni i dispenser collegati al DT
         dispensers = []
         for dispenser_id in dispenser_ids:
-            print(f"DEBUG GETTING DISPENSER: {dispenser_id}")
             dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
-            print(f"DEBUG DISPENSER RESULT: {dispenser}")
-            
             if dispenser:
                 dispensers.append(dispenser)
-                
-        print(f"DEBUG FINAL DISPENSERS: {dispensers}")
         
         if not dispensers:
             await update.message.reply_text("ℹ️ Non ci sono dispensatori validi collegati a questo Digital Twin.")
@@ -344,39 +331,80 @@ async def show_weekly_adherence_handler(update: Update, context: ContextTypes.DE
         dt_name = dt.get('name', 'Digital Twin')
         msg = f"📊 *Aderenza settimanale ai medicinali - {dt_name}*\n\n"
         msg += "```\n"  # Formatting Markdown monospace
-        msg += "Medicinale      | " + " | ".join(short_days) + "\n"
-        msg += "----------------|------|------|------|------|------|------|------\n"
+        
+        # Miglioramento della formattazione della tabella con larghezze fisse
+        medicine_col_width = 15
+        day_col_width = 6
+        
+        # Intestazione migliorata
+        msg += "Medicinale".ljust(medicine_col_width) + " | "
+        msg += " | ".join(day.center(day_col_width) for day in short_days) + "\n"
+        
+        # Linea separatrice migliorata
+        separator = "-" * medicine_col_width + "-|-" + "-|-".join("-" * day_col_width for _ in short_days) + "\n"
+        msg += separator
         
         for dispenser in dispensers:
             # Accesso al nome del dispenser
             dispenser_name = dispenser.get("data", {}).get("name", "???")
-            # name_truncated = (dispenser_name[:12] + "...") if len(dispenser_name) > 15 else dispenser_name.ljust(15)
-            name_truncated = dispenser_name
-            regularity = dispenser.get("data", {}).get("regularity", [])
-            # Ottieni la frequenza con valore predefinito 1
-            freq = dispenser.get("data", {}).get("frequency_per_day", 1)
+            # Tronca il nome se troppo lungo
+            if len(dispenser_name) > medicine_col_width:
+                name_display = dispenser_name[:medicine_col_width-3] + "..."
+            else:
+                name_display = dispenser_name.ljust(medicine_col_width)
             
-            # Controlla l'assunzione per ogni giorno
+            # Ottieni i dati necessari
+            door_events = dispenser.get("data", {}).get("door_events", [])
+            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
+            start_time = medicine_time.get("start", "08:00")
+            end_time = medicine_time.get("end", "20:00")
+            
+            # Controlla l'aderenza per ogni giorno
             day_status = []
             for day in days:
-                day_entries = [r for r in regularity if r.get("date") == day]
-                if not day_entries:
-                    day_status.append("❌")  # Nessuna assunzione registrata
+                # Filtra gli eventi della porta per questo giorno
+                day_events = [e for e in door_events if e.get("timestamp", "").startswith(day)]
+                
+                if not day_events:
+                    # Nessun dato disponibile per questo giorno
+                    day_status.append("⌛")
                 else:
-                    # Gestisci in modo sicuro l'accesso agli elementi
-                    times = day_entries[0].get("times", []) if day_entries else []
-                    times_taken = len(times)
-                    if times_taken >= freq:
-                        day_status.append("✅")  # Assunzioni complete
-                    elif times_taken > 0:
-                        day_status.append("⚠️")  # Assunzioni parziali
+                    # Controlla se c'è stata almeno una coppia apertura-chiusura nell'intervallo
+                    open_events = False
+                    close_events = False
+                    
+                    for event in day_events:
+                        # Ottieni l'orario dall'evento con gestione degli errori
+                        try:
+                            timestamp = event.get("timestamp", "")
+                            if "T" in timestamp:
+                                event_time = timestamp.split("T")[1][:5]  # Estrae HH:MM
+                            else:
+                                continue  # Salta eventi con formato timestamp errato
+                                
+                            # Verifica se l'evento è nell'intervallo configurato
+                            if start_time <= event_time <= end_time:
+                                # Controlla lo stato dell'evento (usa "state" invece di "status")
+                                event_state = event.get("state", "")
+                                if event_state == "open":
+                                    open_events = True
+                                elif event_state == "closed":
+                                    close_events = True
+                        except Exception as e:
+                            print(f"Errore nell'elaborazione dell'evento porta: {e}")
+                    
+                    # Se abbiamo sia apertura che chiusura nell'intervallo, è un'assunzione corretta
+                    if open_events and close_events:
+                        day_status.append("✅")
                     else:
-                        day_status.append("❌")  # Nessuna assunzione registrata
+                        day_status.append("❌")
             
-            msg += f"{name_truncated} | " + " | ".join(day_status) + "\n"
+            # Aggiungi la riga per questo dispenser
+            msg += name_display + " | "
+            msg += " | ".join(status.center(day_col_width) for status in day_status) + "\n"
         
         msg += "```\n"
-        msg += "\n✅ = Completo, ⚠️ = Parziale, ❌ = Mancante"
+        msg += "\n✅ = Assunzione corretta, ❌ = Non assunto, ⌛ = Dati non disponibili"
         
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
