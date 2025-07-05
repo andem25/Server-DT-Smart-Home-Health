@@ -262,16 +262,18 @@ class MedicationReminderService(BaseService):
         alerts = []
         dispensers = [dr for dr in dt_data.get("digital_replicas", []) if dr.get("type") == "dispenser_medicine"]
         
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        
         for dispenser in dispensers:
             dispenser_name = dispenser.get("data", {}).get("name", "medicinale")
             regularity = dispenser.get("data", {}).get("regularity", [])
             
             # Controlla se negli ultimi giorni ci sono state assunzioni mancate
-            today = datetime.now().date()
             missing_days = 0
             
             for i in range(1, 4):  # controlla gli ultimi 3 giorni
-                check_date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+                check_date = (now.date() - timedelta(days=i)).strftime("%Y-%m-%d")
                 day_entries = [r for r in regularity if r.get("date") == check_date]
                 if not day_entries:
                     missing_days += 1
@@ -285,5 +287,76 @@ class MedicationReminderService(BaseService):
                     "severity": "high" if missing_days >= 3 else "medium",
                     "timestamp": datetime.now()
                 })
+
+            # Verifica se oggi è mancata una dose nell'intervallo configurato
+            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
+            if medicine_time:
+                start_time = medicine_time.get("start")
+                end_time = medicine_time.get("end")
+                
+                if start_time and end_time:
+                    try:
+                        # Converti gli orari in oggetti datetime
+                        end_dt = datetime.strptime(f"{today} {end_time}", "%Y-%m-%d %H:%M")
+                        
+                        # Se siamo DOPO la fine dell'intervallo di assunzione, verifichiamo se c'è stata un'assunzione
+                        if now > end_dt:
+                            # Verifica se c'è stata un'assunzione nell'intervallo
+                            door_events = dispenser.get("data", {}).get("door_events", [])
+                            today_events = [e for e in door_events if e.get("timestamp", "").startswith(today)]
+                            
+                            # Filtriamo gli eventi nell'intervallo di assunzione
+                            open_events = False
+                            close_events = False
+                            
+                            for event in today_events:
+                                timestamp = event.get("timestamp", "")
+                                if "T" in timestamp:
+                                    event_time = timestamp.split("T")[1][:5]  # Estrae HH:MM
+                                    if start_time <= event_time <= end_time:
+                                        state = event.get("state", "")
+                                        if state == "open":
+                                            open_events = True
+                                        elif state == "closed":
+                                            close_events = True
+                            
+                            # Se non c'è stata un'assunzione completa, aggiungiamo un alert e notifichiamo
+                            if not (open_events and close_events):
+                                # Aggiungiamo l'alert
+                                alerts.append({
+                                    "type": "today_missed_dose",
+                                    "dispenser_id": dispenser.get("_id"),
+                                    "dispenser_name": dispenser_name,
+                                    "scheduled_time": f"{start_time} - {end_time}",
+                                    "severity": "high",
+                                    "timestamp": now
+                                })
+                                
+                                # Invia una notifica al supervisore
+                                try:
+                                    # Importa qui per evitare dipendenze circolari
+                                    from src.application.bot.notifications import send_adherence_notification
+                                    
+                                    if hasattr(self, 'db_service') and self.db_service and hasattr(self, 'dt_factory') and self.dt_factory:
+                                        # Prepara i dettagli per la notifica
+                                        details = {
+                                            "scheduled_time": f"{start_time} - {end_time}"
+                                        }
+                                        
+                                        # Invia la notifica per dose mancata
+                                        send_adherence_notification(
+                                            self.db_service,
+                                            self.dt_factory,
+                                            dispenser.get("_id"),
+                                            "missed_dose",
+                                            details
+                                        )
+                                except Exception as e:
+                                    print(f"Errore nell'invio della notifica per dose mancata: {e}")
+                    
+                    except ValueError as e:
+                        print(f"Errore nel parsing degli orari di medicina: {e}")
+                    except Exception as e:
+                        print(f"Errore nel controllo dose mancata per dispenser {dispenser.get('_id')}: {e}")
                 
         return alerts

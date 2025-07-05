@@ -70,6 +70,9 @@ class SchedulerService:
                     # Esegui servizi importanti come i promemoria
                     self._execute_reminder_service(dt_instance, dt_name)
                     
+                    # Esegui anche il controllo di aderenza per rilevare mancate assunzioni
+                    self._execute_adherence_check_service(dt_instance, dt_name)
+                    
                     # Esegui anche altri servizi se necessario
                     if dt_instance.get_service("EmergencyRequestService"):
                         # Passa anche dt_factory al servizio
@@ -101,3 +104,24 @@ class SchedulerService:
                     print(f"[Scheduler] {dt_name}: Inviati {result['promemoria_inviati']} promemoria medicinali")
         except Exception as e:
             print(f"[Scheduler] Errore nell'esecuzione del servizio di promemoria per {dt_name}: {e}")
+    
+    def _execute_adherence_check_service(self, dt_instance, dt_name):
+        """Esegue specificamente il controllo di aderenza per rilevare mancate assunzioni"""
+        try:
+            reminder_service = dt_instance.get_service("MedicationReminderService")
+            if reminder_service:
+                # Ottieni i dati aggiornati del DT
+                dt_data = dt_instance.get_dt_data()
+                
+                # Passa le dipendenze necessarie al servizio
+                reminder_service.db_service = self.db_service
+                reminder_service.dt_factory = self.dt_factory
+                
+                # Esegui il controllo delle irregolarità di aderenza
+                alerts = reminder_service.check_adherence_irregularities(dt_data)
+                
+                if alerts and len(alerts) > 0:
+                    print(f"[Scheduler] {dt_name}: Rilevate {len(alerts)} irregolarità nell'assunzione dei medicinali")
+                
+        except Exception as e:
+            print(f"[Scheduler] Errore nel controllo di aderenza per {dt_name}: {e}")

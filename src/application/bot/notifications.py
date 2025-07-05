@@ -458,16 +458,6 @@ def send_door_irregularity_alert(db_service, dt_factory, device_id, state, times
 def send_adherence_notification(db_service, dt_factory, device_id, message_type, details):
     """
     Invia una notifica all'utente relativa all'aderenza alle terapie
-    
-    Args:
-        db_service: Servizio database per accedere ai dati
-        dt_factory: Factory per accedere ai Digital Twin
-        device_id (str): ID del dispenser di medicinali
-        message_type (str): Tipo di notifica di aderenza (missed_dose, low_adherence, etc.)
-        details (dict): Dettagli aggiuntivi specifici per il tipo di messaggio
-    
-    Returns:
-        int: Numero di notifiche inviate con successo
     """
     try:
         # Ottieni il dispenser dal database
@@ -486,7 +476,10 @@ def send_adherence_notification(db_service, dt_factory, device_id, message_type,
             dt_instance = dt_factory.get_dt_instance(dt_id)
             if dt_instance and dt_instance.contains_dr("dispenser_medicine", device_id):
                 dts_with_dispenser.append(dt_id)
-        
+
+        # Ottieni l'ID utente dal dispenser
+        user_db_id = dispenser.get("user_db_id")
+
         # Costruisci il messaggio di notifica in base al tipo
         if message_type == "missed_dose":
             message = (
@@ -509,35 +502,55 @@ def send_adherence_notification(db_service, dt_factory, device_id, message_type,
                 f"📱 Dispenser: *{dispenser_name}*"
             )
     
-        # Invia la notifica a tutti gli utenti attivi del DT
-        if dts_with_dispenser:
-            dt_id = dts_with_dispenser[0]
-            return send_notification_to_dt_users(dt_factory, dt_id, message)
-        else:
-            # Se non c'è un DT associato, usa la funzione di fallback
-            from os import environ
-            token = environ.get('TELEGRAM_TOKEN')
+        # MODIFICATO: Raccogli tutti gli ID Telegram da tutti i DT dell'utente
+        all_telegram_ids = set()
+        
+        # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
+        if user_db_id:
+            dt_collection = db_service.db["digital_twins"]
+            query = {"metadata.user_id": user_db_id}
+            user_dt_docs = list(dt_collection.find(query))
             
-            if token:
-                # ID di fallback
-                telegram_id = 157933243
-                
-                import requests
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                data = {
-                    "chat_id": telegram_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                
-                response = requests.post(url, json=data)
-                if response.status_code == 200:
-                    print(f"Notifica aderenza inviata all'utente {telegram_id} (fallback)")
-                    return 1
-                else:
-                    print(f"Errore nell'invio della notifica: {response.status_code}")
-                    return 0
+            for dt_doc in user_dt_docs:
+                metadata = dt_doc.get("metadata", {})
+                active_ids = metadata.get("active_telegram_ids", [])
+                for id_val in active_ids:
+                    try:
+                        all_telegram_ids.add(int(id_val))
+                    except (ValueError, TypeError):
+                        pass
+        
+        # Se non ci sono ID, usa l'ID di fallback
+        if not all_telegram_ids:
+            all_telegram_ids = {157933243}
+            print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
+        
+        # Invia il messaggio a tutti gli ID raccolti
+        from os import environ
+        token = environ.get('TELEGRAM_TOKEN')
+        
+        if not token:
+            print("ERRORE: Token Telegram non trovato")
             return 0
+        
+        import requests
+        successful_sends = 0
+        for telegram_id in all_telegram_ids:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            data = {
+                "chat_id": telegram_id,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+            
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                print(f"Notifica di aderenza inviata all'ID Telegram: {telegram_id}")
+                successful_sends += 1
+            else:
+                print(f"Errore nell'invio notifica: {response.status_code}")
+                
+        return successful_sends
             
     except Exception as e:
         print(f"Errore nell'invio della notifica di aderenza: {e}")
