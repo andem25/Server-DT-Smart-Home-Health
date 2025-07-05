@@ -9,7 +9,7 @@ class IrregularityAlertService(BaseService):
         self.alerts = []
     
     def configure(self, config):
-        self.missed_doses_threshold = config.get("missed_doses_threshold", 2)
+        self.missed_doses_threshold = config.get("missed_doses_threshold", 1)
         self.door_open_alert_time = config.get("door_open_alert_time", 1)  # minuti
         self.env_min_temperature = config.get("min_temperature", 18)
         self.env_max_temperature = config.get("max_temperature", 30)
@@ -17,6 +17,14 @@ class IrregularityAlertService(BaseService):
     
     def execute(self, dt_data, **kwargs):
         """Controlla tutti i possibili pattern di irregolarità"""
+        # Salva il db_service passato
+        if 'db_service' in kwargs:
+            self.db_service = kwargs['db_service']
+        
+        # Aggiungi questa riga per catturare dt_factory
+        if 'dt_factory' in kwargs:
+            self.dt_factory = kwargs['dt_factory']
+        
         alert_results = {
             "medication_alerts": self._check_medication_adherence(dt_data),
             "door_alerts": self._check_door_status(dt_data),

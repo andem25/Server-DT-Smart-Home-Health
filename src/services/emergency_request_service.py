@@ -23,6 +23,10 @@ class EmergencyRequestService(BaseService):
         """Verifica lo stato delle richieste di emergenza attive"""
         if 'db_service' in kwargs:
             self.db_service = kwargs['db_service']
+    
+        # Aggiungi questa riga per catturare dt_factory
+        if 'dt_factory' in kwargs:
+            self.dt_factory = kwargs['dt_factory']
             
         results = {"requests_active": 0, "notifications_sent": 0}
         
@@ -76,34 +80,6 @@ class EmergencyRequestService(BaseService):
     def _send_emergency_notification(self, device_id, dt_id, dt_name):
         """Invia notifica di emergenza ai contatti configurati"""
         try:
-            # Ottieni il Digital Twin per accedere agli ID Telegram attivi
-            dt = None
-            if self.dt_factory:
-                dt = self.dt_factory.get_dt(dt_id)
-            
-            # Ottieni gli ID Telegram attivi dal DT
-            telegram_ids = []
-            if dt and "metadata" in dt and "active_telegram_ids" in dt["metadata"]:
-                # Converti esplicitamente tutti gli ID a int
-                try:
-                    # Gestisci sia liste di stringhe che di interi
-                    telegram_ids = [int(id_val) for id_val in dt["metadata"]["active_telegram_ids"]]
-                    print(f"DEBUG: IDs Telegram trovati per emergenza: {telegram_ids}")
-                except (ValueError, TypeError) as e:
-                    print(f"ERRORE nella conversione degli ID Telegram: {e}")
-            
-            # Se non ci sono ID attivi, usa i supervisori come fallback
-            if not telegram_ids:
-                supervisors = self._get_dt_supervisors(dt_id)
-                for supervisor in supervisors:
-                    if "telegram_id" in supervisor:
-                        telegram_ids.append(supervisor["telegram_id"])
-            
-            # Se ancora non ci sono ID, usa l'ID di test come ultima risorsa
-            if not telegram_ids:
-                telegram_ids = [157933243]  # ID di fallback solo come ultima risorsa
-                print(f"ATTENZIONE: Nessun ID Telegram trovato per il DT {dt_id}, uso ID di fallback")
-            
             # Prepara il messaggio
             message = (
                 f"🚨 *ALLARME EMERGENZA*!\n\n"
@@ -112,33 +88,15 @@ class EmergencyRequestService(BaseService):
                 f"*Intervento richiesto immediatamente.*"
             )
             
-            # Ottieni il token del bot dalle variabili d'ambiente
-            from os import environ
-            token = environ.get('TELEGRAM_TOKEN')
+            # Importa la funzione per inviare notifiche
+            from src.application.bot.notifications import send_notification_to_dt_users, send_generic_emergency_alert
             
-            if not token:
-                print("DEBUG: Token Telegram non trovato per notifica di emergenza")
-                return
-            
-            # Invia messaggio a tutti gli ID Telegram attivi
-            import requests
-            successful_sends = 0
-            for telegram_id in telegram_ids:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                data = {
-                    "chat_id": telegram_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                
-                response = requests.post(url, json=data)
-                if response.status_code == 200:
-                    print(f"Notifica di emergenza inviata all'ID Telegram: {telegram_id}")
-                    successful_sends += 1
-                else:
-                    print(f"Errore nell'invio notifica: {response.status_code} - {response.text}")
-            
-            return successful_sends
+            # Se dt_factory è disponibile, usa send_notification_to_dt_users
+            if hasattr(self, 'dt_factory') and self.dt_factory:
+                return send_notification_to_dt_users(self.dt_factory, dt_id, message)
+            # Altrimenti usa send_generic_emergency_alert che non richiede dt_factory
+            else:
+                return send_generic_emergency_alert(self.db_service, device_id)
                 
         except Exception as e:
             print(f"Errore nell'invio della notifica di emergenza: {e}")

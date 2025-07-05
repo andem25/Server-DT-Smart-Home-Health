@@ -77,31 +77,31 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("logout", logout_handler))
     application.add_handler(CommandHandler("status", status_handler))
     
-    # Medicine handlers
-    application.add_handler(CommandHandler("add_medicine", create_medicine_handler))
-    application.add_handler(CommandHandler("my_medicines", list_my_medicines_handler))
-    application.add_handler(CommandHandler("set_interval", set_interval_handler))
-    application.add_handler(CommandHandler("set_med_time", set_medicine_time_handler))  # Aggiungi questa riga
-    application.add_handler(CommandHandler("regularity", show_regularity_handler))
-    application.add_handler(CommandHandler("adherence_week", show_weekly_adherence_handler))
+    # Dispenser handlers (rinominati da medicine)
+    application.add_handler(CommandHandler("add_dispenser", create_medicine_handler))
+    application.add_handler(CommandHandler("my_dispensers", list_my_medicines_handler))
+    application.add_handler(CommandHandler("set_dispenser_interval", set_interval_handler))
+    application.add_handler(CommandHandler("set_dispenser_time", set_medicine_time_handler))
+    application.add_handler(CommandHandler("dispenser_history", show_regularity_handler))
+    application.add_handler(CommandHandler("dispenser_adherence", show_weekly_adherence_handler))
     
     # Nuovo handler per l'invio di messaggi
-    application.add_handler(CommandHandler("send_message", send_message_to_dispenser_handler))
+    application.add_handler(CommandHandler("send_dispenser_message", send_message_to_dispenser_handler))
     
-    # Digital Twin handlers
-    application.add_handler(CommandHandler("create_dt", create_dt_handler))
-    application.add_handler(CommandHandler("list_dt", list_dt_handler))
-    application.add_handler(CommandHandler("add_dispenser_dt", add_dispenser_to_dt_handler))
-    application.add_handler(CommandHandler("dt_devices", list_dt_devices_handler))
-    application.add_handler(CommandHandler("check_alerts", check_irregularities_handler))
-    application.add_handler(CommandHandler("dt_ids", show_dt_telegram_ids_handler))  # Nuovo handler
+    # Smart Home Health handlers (rinominati da dt)
+    application.add_handler(CommandHandler("create_smart_home", create_dt_handler))
+    application.add_handler(CommandHandler("list_smart_homes", list_dt_handler))
+    application.add_handler(CommandHandler("link_dispenser", add_dispenser_to_dt_handler))
+    application.add_handler(CommandHandler("smart_home_devices", list_dt_devices_handler))
+    application.add_handler(CommandHandler("check_smart_home_alerts", check_irregularities_handler))
+    application.add_handler(CommandHandler("smart_home_telegrams", show_dt_telegram_ids_handler))
     
     # Handler per dati ambientali e eventi porta
     from src.application.bot.handlers.environmental_handlers import show_environmental_data_handler, set_environmental_limits_handler
     from src.application.bot.handlers.door_handlers import show_door_events_handler
-    application.add_handler(CommandHandler("env_data", show_environmental_data_handler))
-    application.add_handler(CommandHandler("set_env_limits", set_environmental_limits_handler))
-    application.add_handler(CommandHandler("door_events", show_door_events_handler))
+    application.add_handler(CommandHandler("environment_data", show_environmental_data_handler))
+    application.add_handler(CommandHandler("set_environment_limits", set_environmental_limits_handler))
+    application.add_handler(CommandHandler("door_history", show_door_events_handler))
     
     # Echo handler (non-command messages)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_handler))

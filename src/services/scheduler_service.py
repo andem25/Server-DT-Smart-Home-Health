@@ -70,6 +70,18 @@ class SchedulerService:
                     # Esegui servizi importanti come i promemoria
                     self._execute_reminder_service(dt_instance, dt_name)
                     
+                    # Esegui anche altri servizi se necessario
+                    if dt_instance.get_service("EmergencyRequestService"):
+                        # Passa anche dt_factory al servizio
+                        dt_instance.execute_service("EmergencyRequestService", 
+                                                   db_service=self.db_service,
+                                                   dt_factory=self.dt_factory)
+                    
+                    if dt_instance.get_service("IrregularityAlertService"):
+                        dt_instance.execute_service("IrregularityAlertService", 
+                               db_service=self.db_service,
+                               dt_factory=self.dt_factory)
+                    
                 except Exception as e:
                     print(f"[Scheduler] Errore nell'esecuzione dei servizi per DT {dt_name}: {e}")
         
@@ -81,7 +93,10 @@ class SchedulerService:
         try:
             reminder_service = dt_instance.get_service("MedicationReminderService")
             if reminder_service:
-                result = dt_instance.execute_service("MedicationReminderService")
+                # Passa sia db_service che dt_factory all'esecuzione del servizio
+                result = dt_instance.execute_service("MedicationReminderService", 
+                                                    db_service=self.db_service,
+                                                    dt_factory=self.dt_factory)
                 if result and result.get("promemoria_inviati", 0) > 0:
                     print(f"[Scheduler] {dt_name}: Inviati {result['promemoria_inviati']} promemoria medicinali")
         except Exception as e:

@@ -172,3 +172,146 @@ class EnvironmentalMonitoringService(BaseService):
                     "max": max_hum,
                     "timestamp": latest_humidity.get("timestamp")
                 })
+    
+    def handle_environmental_data(self, db_service, dt_factory, device_id, env_data):
+        """
+        Gestisce i dati ambientali combinati ricevuti via MQTT
+        
+        Args:
+            db_service: Servizio database per accedere ai dati
+            dt_factory: Factory per accedere ai Digital Twin
+            device_id (str): ID univoco del dispositivo
+            env_data (dict): Dizionario con temperatura, umidità e timestamp
+        """
+        try:
+            # Estrai i dati dal payload
+            temperature = env_data.get("avg_temperature")
+            humidity = env_data.get("avg_humidity")
+            time_str = env_data.get("time")
+            
+            if temperature is None or humidity is None:
+                print(f"EnvironmentalMonitoringService: Dati ambientali incompleti per {device_id}")
+                return
+            
+            # Valori soglia predefiniti - usiamo quelli configurati nel servizio
+            MIN_TEMP, MAX_TEMP = self.temperature_range
+            MIN_HUMIDITY, MAX_HUMIDITY = self.humidity_range
+            MAX_MEASUREMENTS = 1000
+            
+            # Ottieni il dispenser dal database
+            dispenser = db_service.get_dr("dispenser_medicine", device_id)
+            if not dispenser:
+                print(f"Dispositivo {device_id} non trovato nel database")
+                return
+            
+            # Ottieni i limiti personalizzati, se disponibili
+            custom_temp_limits = dispenser.get("data", {}).get("temperature_limits")
+            if custom_temp_limits and len(custom_temp_limits) == 2:
+                MIN_TEMP, MAX_TEMP = custom_temp_limits
+                
+            custom_humidity_limits = dispenser.get("data", {}).get("humidity_limits")
+            if custom_humidity_limits and len(custom_humidity_limits) == 2:
+                MIN_HUMIDITY, MAX_HUMIDITY = custom_humidity_limits
+            
+            # Controlla se i valori sono fuori range
+            temp_out_of_range = temperature < MIN_TEMP or temperature > MAX_TEMP
+            humidity_out_of_range = humidity < MIN_HUMIDITY or humidity > MAX_HUMIDITY
+            
+            # Crea timestamp ISO
+            if time_str:
+                # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
+                today = datetime.now().strftime("%Y-%m-%d")
+                timestamp = datetime.fromisoformat(f"{today}T{time_str}")
+            else:
+                timestamp = datetime.now()
+                
+            timestamp_iso = timestamp.isoformat()
+            
+            # Prepara i nuovi dati ambientali
+            new_temp_measurement = {
+                "type": "temperature",
+                "value": temperature,
+                "timestamp": timestamp_iso,
+                "unit": "°C"
+            }
+            
+            new_humidity_measurement = {
+                "type": "humidity",
+                "value": humidity,
+                "timestamp": timestamp_iso,
+                "unit": "%"
+            }
+            
+            # Gestisci l'array delle misurazioni in formato FIFO
+            measurements = dispenser.get("data", {}).get("environmental_data", [])
+            if not measurements:
+                measurements = []
+                
+            # Aggiungi le nuove misurazioni
+            measurements.append(new_temp_measurement)
+            measurements.append(new_humidity_measurement)
+            
+            # Se abbiamo raggiunto il massimo, rimuovi le più vecchie
+            while len(measurements) > MAX_MEASUREMENTS:
+                measurements.pop(0)  # Rimuove il primo elemento (FIFO)
+                
+            # Aggiorna il documento nel database
+            update_operation = {
+                "$set": {
+                    "data.environmental_data": measurements,
+                    "data.last_environmental_update": timestamp_iso
+                }
+            }
+            db_service.update_dr("dispenser_medicine", device_id, update_operation)
+            
+            print(f"Dati ambientali aggiornati per {device_id}: Temperatura: {temperature}°C, Umidità: {humidity}%")
+            
+            # Importa la funzione per inviare notifiche
+            from src.application.bot.notifications import send_environmental_alert
+            
+            # Invia notifiche se necessario
+            if temp_out_of_range:
+                send_environmental_alert(db_service, dt_factory, device_id, "temperatura", temperature, "°C", MIN_TEMP, MAX_TEMP)
+                
+            if humidity_out_of_range:
+                send_environmental_alert(db_service, dt_factory, device_id, "umidità", humidity, "%", MIN_HUMIDITY, MAX_HUMIDITY)
+                
+            # Notifica eventuali Digital Twin associati
+            # Aggiorniamo entrambe le misure
+            self.process_measurement(device_id, new_temp_measurement)
+            self.process_measurement(device_id, new_humidity_measurement)
+            
+            # Trova e aggiorna i DT associati
+            if dt_factory:
+                # Trova tutti i DT collegati a questo dispositivo
+                dts_with_dispenser = []
+                all_dts = db_service.query_drs("digital_twins", {})
+                
+                for dt in all_dts:
+                    dt_id = str(dt.get("_id"))
+                    dt_instance = dt_factory.get_dt_instance(dt_id)
+                    
+                    if dt_instance and dt_instance.contains_dr("dispenser_medicine", device_id):
+                        dts_with_dispenser.append(dt_id)
+                
+                # Notifica i servizi nei DT
+                for dt_id in dts_with_dispenser:
+                    try:
+                        dt_instance = dt_factory.get_dt_instance(dt_id)
+                        if dt_instance:
+                            # Verifica servizio di irregolarità che potrebbe usare i dati ambientali
+                            irreg_service = dt_instance.get_service("IrregularityAlertService")
+                            if irreg_service:
+                                # Verifica delle irregolarità
+                                dt_data = dt_instance.get_dt_data()
+                                alerts = irreg_service.execute(dt_data)
+                                
+                                if alerts.get("environmental_alerts"):
+                                    print(f"Rilevate irregolarità ambientali per DT {dt_id}")
+                    except Exception as e:
+                        print(f"Errore nell'aggiornamento dei servizi del DT {dt_id}: {e}")
+        
+        except Exception as e:
+            print(f"Errore nella gestione dei dati ambientali: {e}")
+            import traceback
+            traceback.print_exc()

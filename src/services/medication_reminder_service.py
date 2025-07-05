@@ -20,7 +20,15 @@ class MedicationReminderService(BaseService):
         return self
         
     def execute(self, dt_data, **kwargs):
-        """Esegue il controllo dei promemoria per tutti i dispenser di medicinali"""
+        """Esegue il controllo delle assunzioni pianificate e invia promemoria se necessario"""
+        # Salva il db_service passato per le operazioni database
+        if 'db_service' in kwargs:
+            self.db_service = kwargs['db_service']
+    
+        # Aggiungi questa riga per catturare dt_factory
+        if 'dt_factory' in kwargs:
+            self.dt_factory = kwargs['dt_factory']
+    
         results = {
             "promemoria_verificati": 0,
             "promemoria_inviati": 0  # Contatore corretto delle notifiche inviate

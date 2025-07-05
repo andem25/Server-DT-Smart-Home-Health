@@ -31,20 +31,20 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Sezione gestione dispenser (solo per utenti loggati)
     help_text += "*💊 GESTIONE DISPENSER*\n"
     if is_logged_in:
-        help_text += "• `/add_medicine <id_univoco> <nome>` - Registra un nuovo dispenser\n"
-        help_text += "• `/my_medicines` - Mostra tutti i tuoi dispenser registrati\n"
-        help_text += "• `/set_interval <id_dispenser> <intervallo>` - Imposta l'intervallo di assunzione (es. 08-20)\n"
-        help_text += "• `/set_med_time <id_dispenser> <inizio> <fine>` - Imposta orario preciso per assunzione (es: 19:30 20:00)\n"
-        help_text += "• `/regularity <id_dispenser>` - Mostra lo storico assunzioni per un dispenser\n"
-        help_text += "• `/send_message <id_dispenser> <messaggio>` - Invia un messaggio al dispenser\n"
-        help_text += "• `/door_events <id_dispenser> [n|data_inizio data_fine]` - Mostra eventi porta con regolarità\n"
-        help_text += "• `/env_data <id_dispenser> [n|data_inizio data_fine]` - Mostra dati ambientali\n"
-        help_text += "• `/set_env_limits <id_dispenser> <tipo> <min> <max>` - Imposta limiti per temperatura o umidità\n\n"
+        help_text += "• `/add_dispenser <id_univoco> <nome>` - Registra un nuovo dispenser\n"
+        help_text += "• `/my_dispensers` - Mostra tutti i tuoi dispenser registrati\n"
+        help_text += "• `/set_dispenser_interval <id_dispenser> <intervallo>` - Imposta l'intervallo di assunzione (es. 08-20)\n"
+        help_text += "• `/set_dispenser_time <id_dispenser> <inizio> <fine>` - Imposta orario preciso per assunzione (es: 19:30 20:00)\n"
+        help_text += "• `/dispenser_history <id_dispenser>` - Mostra lo storico assunzioni per un dispenser\n"
+        help_text += "• `/send_dispenser_message <id_dispenser> <messaggio>` - Invia un messaggio al dispenser\n"
+        help_text += "• `/door_history <id_dispenser> [n|data_inizio data_fine]` - Mostra eventi porta con regolarità\n"
+        help_text += "• `/environment_data <id_dispenser> [n|data_inizio data_fine]` - Mostra dati ambientali\n"
+        help_text += "• `/set_environment_limits <id_dispenser> <tipo> <min> <max>` - Imposta limiti per temperatura o umidità\n\n"
         
-        help_text += "\n*🤖 GESTIONE DIGITAL TWIN*\n"
-        help_text += "• `/create_dt <nome> [descrizione]` - Crea un nuovo Digital Twin completo\n"
+        help_text += "\n*🤖 GESTIONE SMART HOME HEALTH*\n"
+        help_text += "• `/create_smart_home <nome> [descrizione]` - Crea un nuovo Digital Twin completo\n"
         help_text += "• `/create_unique_dt <nome> [descrizione]` - Crea DT con nome reso univoco automaticamente\n"
-        help_text += "• `/list_dt` - Mostra tutti i tuoi Digital Twin\n"
+        help_text += "• `/list_smart_homes` - Mostra tutti i tuoi Digital Twin\n"
         
         help_text += "\nIl Digital Twin creato includerà tutti i 9 servizi richiesti (FR-1 a FR-9):\n"
         help_text += "- FR-1: Promemoria Medicinali\n"
@@ -58,9 +58,9 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text += "- FR-9: Interazione Remota Supervisore\n\n"
         
         # --- RIGA CORRETTA ---
-        help_text += "• `/add_dispenser_dt <dt_id> <dispenser_id>` - Collega un dispenser esistente al DT\n"
+        help_text += "• `/link_dispenser <dt_id> <dispenser_id>` - Collega un dispenser esistente al DT\n"
         
-        help_text += "• `/dt_devices <dt_id>` - Mostra dispositivi collegati a un DT\n\n"
+        help_text += "• `/smart_home_devices <dt_id>` - Mostra dispositivi collegati a un DT\n\n"
     
     else:
         help_text += "⚠️ *Devi effettuare il login per accedere a questa sezione*\n\n"
@@ -78,20 +78,20 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text += "*📝 ESEMPI DI UTILIZZO*\n"
     help_text += "1. Registrazione: `/register mario123 password456`\n"
     help_text += "2. Login: `/login mario123 password456`\n"
-    help_text += "3. Registra dispenser: `/add_medicine disp1 \"Dispenser Aspirina\"`\n"
-    help_text += "4. Imposta intervallo: `/set_interval disp1 08-20`\n"
-    help_text += "5. Crea Digital Twin: `/create_dt CasaSmart \"DT per la mia casa\"`\n"
-    help_text += "6. Visualizza DT con `/list_dt` per ottenere il suo `<dt_id>`\n"
+    help_text += "3. Registra dispenser: `/add_dispenser disp1 \"Dispenser Aspirina\"`\n"
+    help_text += "4. Imposta intervallo: `/set_dispenser_interval disp1 08-20`\n"
+    help_text += "5. Crea Digital Twin: `/create_smart_home CasaSmart \"DT per la mia casa\"`\n"
+    help_text += "6. Visualizza DT con `/list_smart_homes` per ottenere il suo `<dt_id>`\n"
     
     # --- ESEMPIO CORRETTO ---
-    help_text += "7. Collega dispenser al DT: `/add_dispenser_dt <dt_id> disp1`\n"
+    help_text += "7. Collega dispenser al DT: `/link_dispenser <dt_id> disp1`\n"
     
-    help_text += "8. Visualizza dispositivi collegati: `/dt_devices <dt_id>`\n\n"
+    help_text += "8. Visualizza dispositivi collegati: `/smart_home_devices <dt_id>`\n\n"
     
     # Sezione risoluzione problemi
     help_text += "*🔧 RISOLUZIONE PROBLEMI*\n"
     help_text += "• Se non ricevi notifiche, verifica di aver effettuato il login\n"
-    help_text += "• Se non vedi i tuoi dispenser, controlla con `/my_medicines`\n"
+    help_text += "• Se non vedi i tuoi dispenser, controlla con `/my_dispensers`\n"
     help_text += "• Per qualsiasi problema, contatta l'amministratore\n\n"
     
     # Stato attuale
@@ -100,7 +100,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text += f"Sei loggato come: *{username}*\n"
     else:
         help_text += "Non sei loggato. Usa `/login` o `/register` per iniziare.\n"
-    
+        
     await update.message.reply_text(help_text, parse_mode="Markdown")
 async def echo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Echo handler that replies with the same message received"""

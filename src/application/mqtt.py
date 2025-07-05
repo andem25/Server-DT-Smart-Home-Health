@@ -3,17 +3,12 @@ import ssl
 import threading
 import time
 import json
-from datetime import datetime, timedelta
-from asyncio import run_coroutine_threadsafe
-from flask import current_app
-from src.application.bot.notifications import send_alert_to_user
+from datetime import datetime
 import json
-from datetime import timedelta
 from config.settings import (
     MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD,
     MQTT_TOPIC_TAKEN, MQTT_TOPIC_DOOR, MQTT_TOPIC_EMERGENCY,
-    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC, MQTT_TOPIC_NOTIFICATION,
-    MQTT_TOPIC_LED_STATES
+    MQTT_TOPIC_ENVIRONMENTAL, MQTT_TOPIC_ASSOC
 )
 
 BROKER_URL = MQTT_BROKER
@@ -127,13 +122,29 @@ class MqttSubscriber:
 
             print(f"MQTT: Ricevuto '{payload}' sul topic '{topic}', ID dispositivo: {device_id}")
 
-            # Gestione dei topic usando le variabili
-            if topic_suffix == MQTT_TOPIC_TAKEN and payload == "1":
-                self._update_regularity(device_id)
             
-            # NUOVO: Gestisce il nuovo formato eventi porta
-            elif topic_suffix == MQTT_TOPIC_DOOR:
-                self._update_door_status(device_id, payload)
+            # Gestione eventi porta con delega al servizio
+            if topic_suffix == MQTT_TOPIC_DOOR:
+                # Trova i DT collegati a questo dispositivo
+                dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
+                
+                # Cerca un DT che abbia il servizio porta
+                door_service = None
+                for dt_id in dts_with_dispenser:
+                    dt_instance = self.dt_factory.get_dt_instance(dt_id)
+                    if dt_instance:
+                        door_service = dt_instance.get_service("DoorEventService")
+                        if door_service:
+                            break
+                            
+                # Se abbiamo trovato un servizio, lo utilizziamo
+                if door_service:
+                    door_service.handle_door_status_update(
+                        self.db_service,
+                        self.dt_factory,
+                        device_id,
+                        payload
+                    )
             
             elif topic_suffix == MQTT_TOPIC_EMERGENCY:
                 if payload == "1":
@@ -141,15 +152,37 @@ class MqttSubscriber:
                     self._handle_emergency_request(device_id)
                 else:
                     print(f"MQTT Subscriber: Payload non valido per emergenza: '{payload}'")
-        
+    
             elif topic_suffix == MQTT_TOPIC_ENVIRONMENTAL:
                 try:
                     env_data = json.loads(payload)
-                    self._handle_environmental_data(device_id, env_data)
+
+                    # Trova tutti i DT collegati a questo dispositivo
+                    dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
+
+                    # Cerca un DT che abbia il servizio ambientale
+                    env_service = None
+                    for dt_id in dts_with_dispenser:
+                        dt_instance = self.dt_factory.get_dt_instance(dt_id)
+                        if dt_instance:
+                            env_service = dt_instance.get_service("EnvironmentalMonitoringService")
+                            if env_service:
+                                break
+                                
+                    # Se abbiamo trovato un servizio, lo utilizziamo
+                    if env_service:
+                        env_service.handle_environmental_data(
+                            self.db_service, 
+                            self.dt_factory, 
+                            device_id, 
+                            env_data
+                        )
+                    else:
+                        print(f"MQTT: Nessun servizio ambientale trovato per il dispositivo {device_id}")
                 except json.JSONDecodeError:
                     print(f"MQTT Subscriber: Payload dati ambientali non valido (non è JSON): '{payload}'")
         except Exception as e:
-            print(f"MQTT Subscriber: Errore nella gestione dei dati ambientali: {e}")
+            print(f"MQTT Subscriber: Errore nella gestione del messaggio: {e}")
 
     def _process_message(self, client, userdata, msg):
         """Elabora i messaggi MQTT ricevuti."""
@@ -189,17 +222,6 @@ class MqttSubscriber:
                 except Exception as e:
                     print(f"Errore nella gestione evento porta: {e}")
             
-            # Gestione topic di notifica (se il dispositivo risponde)
-            elif topic.startswith("dispenser/") and topic.endswith("/notification/ack"):
-                dispenser_id = topic.split("/")[1]
-                status = payload.get("status")
-                
-                if status == "received":
-                    print(f"Dispositivo {dispenser_id} ha ricevuto la notifica")
-                    
-                    # Qui potresti aggiornare lo stato nel database
-                    # self.db_service.update_dr("dispenser_medicine", dispenser_id, 
-                    #    {"$set": {"data.last_notification_ack": datetime.now().isoformat()}}
             
         except json.JSONDecodeError as e:
             print(f"Errore nella decodifica del payload JSON: {e}")
@@ -207,261 +229,8 @@ class MqttSubscriber:
         except Exception as e:
             print(f"Errore nella gestione del messaggio MQTT: {e}")
 
-    def _update_door_status(self, dispenser_id, payload):
-        """Aggiorna lo stato della porta del dispenser nel formato {"door":0,"time":"10:18:27"}"""
-        try:
-            # Parsing del payload
-            try:
-                data = json.loads(payload)
-                door_value = data.get("door")
-                time_str = data.get("time")
-                
-                # Converti il valore numerico in stato testuale
-                if door_value == 1:
-                    state = "open"
-                elif door_value == 0:
-                    state = "closed"
-                else:
-                    print(f"MQTT Subscriber: Valore porta non valido: {door_value}")
-                    return
-                
-                # Crea timestamp completo
-                if time_str:
-                    # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    timestamp = datetime.fromisoformat(f"{today}T{time_str}")
-                else:
-                    timestamp = datetime.now()
-                    time_str = timestamp.strftime("%H:%M:%S")
-                
-            except json.JSONDecodeError:
-                print(f"MQTT Subscriber: Formato payload non valido per evento porta: '{payload}'")
-                return
-            except ValueError as e:
-                print(f"MQTT Subscriber: Errore nel parsing dell'orario: {e}")
-                timestamp = datetime.now()
-                time_str = timestamp.strftime("%H:%M:%S")
-        
-            # Genera timestamp ISO
-            timestamp_iso = timestamp.isoformat()
-            
-            # Ottieni il dispenser per verificare gli orari di medicina configurati
-            dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
-            if not dispenser:
-                print(f"Dispenser {dispenser_id} non trovato nel database")
-                return
-            
-            # Verifica se l'evento è regolare in base all'orario di assunzione configurato
-            is_regular = False
-            event_regularity = "irregular"
-            reason = "outside_schedule"
-            
-            # Ottieni l'orario di assunzione configurato
-            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
-            if medicine_time:
-                start_time = medicine_time.get("start")
-                end_time = medicine_time.get("end")
-                
-                if start_time and end_time:
-                    # Converti orari in oggetti datetime per confronto
-                    try:
-                        today_str = timestamp.strftime("%Y-%m-%d")
-                        start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
-                        end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
-                        
-                        # Verifica se l'evento è all'interno dell'intervallo configurato
-                        if start_dt <= timestamp <= end_dt:
-                            is_regular = True
-                            event_regularity = "regular"
-                            reason = "within_schedule"
-                    except ValueError as e:
-                        print(f"Errore nel parsing degli orari di medicina: {e}")
-        
-            # Prepara il nuovo evento porta con informazioni sulla regolarità
-            new_door_event = {
-                "state": state,
-                "timestamp": timestamp_iso,
-                "regularity": event_regularity,
-                "reason": reason
-            }
-            
-            # Ottieni gli eventi esistenti
-            door_events = dispenser.get("data", {}).get("door_events", [])
-            if not door_events:
-                door_events = []
-                
-            # Aggiungi il nuovo evento mantenendo una lista FIFO
-            door_events.append(new_door_event)
-            
-            # Limita il numero massimo di eventi memorizzati (conserva gli ultimi 1000)
-            MAX_DOOR_EVENTS = 1000
-            while len(door_events) > MAX_DOOR_EVENTS:
-                door_events.pop(0)
-        
-            # Aggiorna il documento nel database
-            update_operation = {
-                "$set": {
-                    "data.door_status": state,
-                    "data.last_door_event": timestamp_iso,
-                    "data.door_events": door_events
-                }
-            }
-            self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
-            
-            # Log con informazioni sulla regolarità
-            regularity_str = "REGOLARE" if is_regular else "IRREGOLARE"
-            print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')} - {regularity_str}")
-            
-            # NUOVO: Invia notifica all'utente se l'evento è irregolare
-            if not is_regular:
-                event_details = {
-                    "timestamp": timestamp,
-                    "state": state,
-                    "regularity": event_regularity,
-                    "reason": reason
-                }
-                self._send_door_irregularity_alert(dispenser_id, state, timestamp, event_details)
-        
-            # Notifica i Digital Twin collegati
-            if hasattr(self, 'dt_factory'):
-                # Trova tutti i DT che contengono questa DR
-                dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
-                
-                for dt_id in dts_with_dispenser:
-                    try:
-                        dt = self.dt_factory.get_dt_instance(dt_id)
-                        if dt:
-                            # Ottieni e notifica il servizio DoorEventService se esiste
-                            door_service = dt.get_service("DoorEventService")
-                            if door_service:
-                                door_service.door_state_changed(dispenser_id, state, timestamp, is_regular)
-                    except Exception as e:
-                        print(f"Errore nell'aggiornamento dello stato porta per DT {dt_id}: {e}")
-            
-        except Exception as e:
-            print(f"Errore nell'aggiornamento dello stato porta per dispenser {dispenser_id}: {e}")
-            import traceback
-            traceback.print_exc()
 
-    def _update_regularity(self, device_id):
-        """Aggiorna la regolarità per il dispositivo specificato"""
-        if not self.db_service:
-            print("MQTT Subscriber: Servizio database non disponibile")
-            return
-            
-        try:
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                print(f"MQTT Subscriber: Dispenser con ID {device_id} non trovato nel database")
-                return
-                
-            # Prepara data e ora correnti
-            now = datetime.now()
-            current_date = now.strftime("%Y-%m-%d")
-            current_time = now.strftime("%H:%M:%S")
-            
-            # Ottieni la lista di regolarità esistente
-            regularity = dispenser.get("data", {}).get("regularity", [])
-            
-            # Cerca se esiste già un elemento per la data odierna
-            date_entry = next((item for item in regularity if item.get("date") == current_date), None)
-            
-            if date_entry:
-                # Se esiste già un'entry per oggi, aggiungi l'orario attuale
-                if "times" not in date_entry:
-                    date_entry["times"] = []
-                date_entry["times"].append(current_time)
-            else:
-                # Altrimenti, crea un nuovo entry per oggi
-                regularity.append({
-                    "date": current_date,
-                    "times": [current_time]
-                })
-            
-            # Aggiorna il documento nel database
-            self.db_service.update_dr(
-                "dispenser_medicine", 
-                device_id, 
-                {"$set": {"data.regolarity": regularity}}
-            )
-            
-            print(f"MQTT Subscriber: Aggiornata regolarità per {device_id}: {current_date} {current_time}")
-        except Exception as e:
-            print(f"MQTT Subscriber: Errore nell'aggiornamento della regolarità: {e}")
-
-    def _update_medicine_taken(self, dispenser_id, payload):
-        """Aggiorna lo stato del dispenser quando viene rilevata un'assunzione"""
-        try:
-            # Parsing del payload (potrebbe contenere dettagli sull'assunzione)
-            data = json.loads(payload)
-            taken_time = data.get("time", datetime.now().strftime("%H:%M"))
-
-            # Ottieni il dispenser attuale per accedere ai dati esistenti
-            dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
-            if not dispenser:
-                print(f"Dispenser {dispenser_id} non trovato")
-                return
-
-            # Aggiorna la Digital Replica del dispenser (unica entità)
-            today = datetime.now().strftime("%Y-%m-%d")
-
-            # Verifica se esiste già un'entry per oggi
-            regularity = dispenser.get("data", {}).get("regularity", [])
-            today_entry = next((r for r in regularity if r["date"] == today), None)
-
-            update_operation = {}
-
-            if today_entry:
-                # Trova l'indice dell'entry di oggi
-                today_index = next((i for i, r in enumerate(regularity) if r["date"] == today), None)
-                if today_index is not None:
-                    # Aggiorna l'entry esistente aggiungendo l'orario attuale
-                    update_operation = {
-                        "$push": {f"data.regularity.{today_index}.times": taken_time},
-                        "$set": {"data.next_scheduled": (datetime.now() + timedelta(hours=8)).isoformat()}
-                    }
-            else:
-                # Crea una nuova entry per oggi
-                new_entry = {
-                    "date": today,
-                    "times": [taken_time],
-                    "completed": False
-                }
-                update_operation = {
-                    "$push": {"data.regularity": new_entry},
-                    "$set": {"data.next_scheduled": (datetime.now() + timedelta(hours=8)).isoformat()}
-                }
-
-            # Effettua l'aggiornamento
-            self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
-
-            print(f"Dispenser {dispenser_id}: registrata assunzione alle {taken_time}")
-
-            # Notifica i Digital Twin associati per aggiornare i vari servizi
-            # (es. AdherenceLoggingService)
-            if hasattr(self, 'dt_factory'):
-                # Trova tutti i DT che contengono questa DR
-                dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
-
-                # Esegui i servizi rilevanti su ogni DT
-                for dt_id in dts_with_dispenser:
-                    try:
-                        dt = self.dt_factory.get_dt(dt_id)
-                        # Trova i servizi AdherenceLoggingService e attivali
-                        for service in dt.get("services", []):
-                            if service.get("name") == "AdherenceLoggingService":
-                                # Qui dovresti avere un modo per eseguire un servizio specifico
-                                # Dipende dall'implementazione esatta del tuo sistema
-                                pass
-                    except Exception as e:
-                        print(f"Errore nell'aggiornamento dei servizi DT: {e}")
-        
-        except json.JSONDecodeError:
-            print(f"Payload non valido: {payload}")
-        except Exception as e:
-            print(f"Errore nell'aggiornamento dell'assunzione del medicinale: {e}")
-
+    
 
     def start(self):
         """Avvia il subscriber in un thread separato"""
@@ -548,117 +317,6 @@ class MqttSubscriber:
             print(f"MQTT Subscriber: Errore nella connessione al broker: {e}")
             return False
 
-    def _handle_environmental_data(self, device_id, env_data):
-        """
-        Gestisce i dati ambientali combinati ricevuti via MQTT
-        
-        Args:
-            device_id (str): ID univoco del dispositivo
-            env_data (dict): Dizionario con temperatura, umidità e timestamp
-        """
-        try:
-            # Estrai i dati dal payload
-            temperature = env_data.get("avg_temperature")
-            humidity = env_data.get("avg_humidity")
-            time_str = env_data.get("time")
-            
-            if temperature is None or humidity is None:
-                print(f"MQTT Subscriber: Dati ambientali incompleti per {device_id}")
-                return
-            
-            # Valori soglia predefiniti
-            MIN_TEMP = 18.0
-            MAX_TEMP = 30.0
-            MIN_HUMIDITY = 30.0
-            MAX_HUMIDITY = 70.0
-            MAX_MEASUREMENTS = 1000
-            
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                print(f"Dispositivo {device_id} non trovato nel database")
-                return
-            
-            # Ottieni i limiti personalizzati, se disponibili
-            custom_temp_limits = dispenser.get("data", {}).get("temperature_limits")
-            if custom_temp_limits and len(custom_temp_limits) == 2:
-                MIN_TEMP, MAX_TEMP = custom_temp_limits
-                
-            custom_humidity_limits = dispenser.get("data", {}).get("humidity_limits")
-            if custom_humidity_limits and len(custom_humidity_limits) == 2:
-                MIN_HUMIDITY, MAX_HUMIDITY = custom_humidity_limits
-            
-            # Controlla se i valori sono fuori range
-            temp_out_of_range = temperature < MIN_TEMP or temperature > MAX_TEMP
-            humidity_out_of_range = humidity < MIN_HUMIDITY or humidity > MAX_HUMIDITY
-            
-            # Crea timestamp ISO
-            if time_str:
-                # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
-                today = datetime.now().strftime("%Y-%m-%d")
-                timestamp = datetime.fromisoformat(f"{today}T{time_str}")
-            else:
-                timestamp = datetime.now()
-                
-            timestamp_iso = timestamp.isoformat()
-            
-            # Prepara i nuovi dati ambientali
-            new_temp_measurement = {
-                "type": "temperature",
-                "value": temperature,
-                "timestamp": timestamp_iso,
-                "unit": "°C"
-            }
-            
-            new_humidity_measurement = {
-                "type": "humidity",
-                "value": humidity,
-                "timestamp": timestamp_iso,
-                "unit": "%"
-            }
-            
-            # Gestisci l'array delle misurazioni in formato FIFO
-            measurements = dispenser.get("data", {}).get("environmental_data", [])
-            if not measurements:
-                measurements = []
-                
-            # Aggiungi le nuove misurazioni
-            measurements.append(new_temp_measurement)
-            measurements.append(new_humidity_measurement)
-            
-            # Se abbiamo raggiunto il massimo, rimuovi le più vecchie
-            while len(measurements) > MAX_MEASUREMENTS:
-                measurements.pop(0)  # Rimuove il primo elemento (FIFO)
-                
-            # Aggiorna il documento nel database
-            update_operation = {
-                "$set": {
-                    "data.environmental_data": measurements,
-                    "data.last_environmental_update": timestamp_iso
-                }
-            }
-            self.db_service.update_dr("dispenser_medicine", device_id, update_operation)
-            
-            print(f"Dati ambientali aggiornati per {device_id}: Temperatura: {temperature}°C, Umidità: {humidity}%")
-            
-            # Invia notifiche se necessario
-            if temp_out_of_range:
-                self._send_environmental_alert(device_id, "temperatura", temperature, "°C", MIN_TEMP, MAX_TEMP)
-                
-            if humidity_out_of_range:
-                self._send_environmental_alert(device_id, "umidità", humidity, "%", MIN_HUMIDITY, MAX_HUMIDITY)
-                
-            # Notifica eventuali Digital Twin associati
-            # Aggiorniamo per entrambe le misure
-            self._update_dt_environmental_services(device_id, new_temp_measurement)
-            self._update_dt_environmental_services(device_id, new_humidity_measurement)
-                
-        except Exception as e:
-            print(f"Errore nella gestione dei dati ambientali: {e}")
-            import traceback
-            traceback.print_exc()
-
-
     def _handle_emergency_request(self, device_id):
         """Gestisce una richiesta di aiuto di emergenza"""
         try:
@@ -671,11 +329,6 @@ class MqttSubscriber:
             # Trova tutti i DT collegati a questo dispositivo
             dt_ids = self._find_dts_with_dr("dispenser_medicine", device_id)
             
-            if not dt_ids:
-                print(f"Nessun Digital Twin associato al dispositivo {device_id}")
-                # Invia comunque una notifica generica se possibile
-                self._send_generic_emergency_alert(device_id)
-                return
                 
             for dt_id in dt_ids:
                 try:
@@ -688,6 +341,9 @@ class MqttSubscriber:
                     if dt_instance:
                         emergency_service = dt_instance.get_service("EmergencyRequestService")
                         if emergency_service:
+                            # Passa sia db_service che dt_factory
+                            emergency_service.db_service = self.db_service
+                            emergency_service.dt_factory = self.dt_factory  # Aggiungi questa riga
                             emergency_service.emergency_requested(device_id, dt_id, dt_name)
                         else:
                             print(f"EmergencyRequestService non trovato nel DT {dt_id}")
@@ -702,140 +358,23 @@ class MqttSubscriber:
     def _find_dts_with_dr(self, dr_type, dr_id):
         """Trova tutti i Digital Twin che contengono una certa Digital Replica"""
         try:
-            # Ottieni tutti i Digital Twin dal database
-            all_dts = self.db_service.query_drs("digital_twins", {})
+            # Query diretta più semplice con il campo corretto
+            collection = self.db_service.db["digital_twins"]
+            query = {"digital_replicas": {"$elemMatch": {"id": dr_id, "type": dr_type}}}
             matching_dts = []
             
-            for dt in all_dts:
-                dt_id = str(dt.get("_id"))
-                dt_instance = self.dt_factory.get_dt_instance(dt_id)
-                
-                if dt_instance and dt_instance.contains_dr(dr_type, dr_id):
-                    matching_dts.append(dt_id)
-                    
+            for dt in collection.find(query):
+                matching_dts.append(str(dt.get("_id")))
+            
+            print(f"DEBUG: Trovati {len(matching_dts)} DT con {dr_type}={dr_id}: {matching_dts}")
             return matching_dts
+            
         except Exception as e:
             print(f"Errore nella ricerca dei DT con DR {dr_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return []
             
-    def _send_generic_emergency_alert(self, device_id):
-        """Invia un avviso di emergenza generico quando non c'è un DT associato"""
-        try:
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                return
-                
-            # Identifica l'utente proprietario
-            user_db_id = dispenser.get("user_db_id")
-            if not user_db_id:
-                return
-            
-            # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
-            dt_collection = self.db_service.db["digital_twins"]
-            query = {"metadata.user_id": user_db_id}
-            user_dt_docs = list(dt_collection.find(query))
-            
-            # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
-            all_telegram_ids = set()
-            for dt_doc in user_dt_docs:
-                metadata = dt_doc.get("metadata", {})
-                active_ids = metadata.get("active_telegram_ids", [])
-                for id_val in active_ids:
-                    try:
-                        all_telegram_ids.add(int(id_val))
-                    except (ValueError, TypeError):
-                        pass
-            
-            # Se non ci sono ID, usa l'ID di fallback
-            if not all_telegram_ids:
-                all_telegram_ids = {157933243}
-                print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
-            
-            # Prepara il messaggio
-            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
-            message = (
-                f"🚨 *ALLARME EMERGENZA*!\n\n"
-                f"⚠️ *RICHIESTA DI AIUTO* dal dispositivo *{dispenser_name}* (`{device_id}`)\n\n"
-                f"*Intervento richiesto immediatamente.*"
-            )
-            
-            # Ottieni il token del bot dalle variabili d'ambiente
-            from os import environ
-            token = environ.get('TELEGRAM_TOKEN')
-            
-            if token:
-                # Invia a tutti gli ID recuperati
-                import requests
-                for telegram_id in all_telegram_ids:
-                    url = f"https://api.telegram.org/bot{token}/sendMessage"
-                    data = {
-                        "chat_id": telegram_id,
-                        "text": message,
-                        "parse_mode": "Markdown"
-                    }
-                    
-                    response = requests.post(url, json=data)
-                    if response.status_code == 200:
-                        print(f"Notifica di emergenza generica inviata all'ID Telegram: {telegram_id}")
-                    else:
-                        print(f"Errore nell'invio notifica generica: {response.status_code}")
-                
-        except Exception as e:
-            print(f"Errore nell'invio dell'avviso di emergenza generico: {e}")
-    
-    
-    def _send_environmental_alert(self, device_id, measure_type, value, unit, min_value, max_value):
-        """
-        Invia una notifica di allarme ambientale all'utente
-        """
-        try:
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                return
-                
-            user_db_id = dispenser.get("user_db_id")
-            if not user_db_id:
-                return
-                
-            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
-            
-            # Ottieni il Digital Twin associato al dispositivo
-            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
-            dt_name = "Casa"  # Default
-            
-            if dts_with_dispenser:
-                dt_id = dts_with_dispenser[0]  # Prendiamo il primo DT associato
-                dt = self.dt_factory.get_dt(dt_id)
-                if dt:
-                    dt_name = dt.get("name", "Casa")
-            
-            # Costruisci il messaggio di allarme
-            if value < min_value:
-                status = "basso"
-            else:
-                status = "alto"
-                
-            message = (
-                f"⚠️ *ALLARME AMBIENTALE*\n\n"
-                f"🌡️ Rilevato valore di {measure_type} {status}!\n"
-                f"📊 Valore: *{value}{unit}*\n"
-                f"🔍 Intervallo sicuro: {min_value}-{max_value}{unit}\n"
-                f"📱 Dispositivo: *{dispenser_name}*\n"
-                f"🏠 Posizione: {dt_name}\n\n"
-                f"👉 Si consiglia di verificare le condizioni ambientali."
-            )
-            
-            # Invia la notifica a tutti gli utenti attivi del DT
-            if dts_with_dispenser:
-                dt_id = dts_with_dispenser[0]
-                self._send_notification_to_dt_users(dt_id, message)
-            else:
-                # Se non c'è un DT associato, usa la funzione di fallback
-                self._send_generic_emergency_alert(device_id)
-                
-        except Exception as e:
-            print(f"Errore nell'invio dell'allarme ambientale: {e}")
     
     def _update_dt_environmental_services(self, device_id, measurement):
         """
@@ -878,227 +417,3 @@ class MqttSubscriber:
                 
         except Exception as e:
             print(f"Errore generale nell'aggiornamento dei servizi DT: {e}")
-    
-    def _send_door_irregularity_alert(self, device_id, state, timestamp, event_details):
-        """
-        Invia una notifica all'utente quando si verifica un'apertura/chiusura porta irregolare
-        """
-        try:
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                return
-                
-            # Ottieni i dettagli del dispenser
-            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
-            
-            # Trova il Digital Twin associato al dispositivo
-            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
-            dt_name = "Casa"  # Default
-            
-            if dts_with_dispenser:
-                dt_id = dts_with_dispenser[0]  # Prendiamo il primo DT associato
-                dt = self.dt_factory.get_dt(dt_id)
-                if dt:
-                    dt_name = dt.get("name", "Casa")
-        
-            # Costruisci il messaggio di notifica
-            time_str = timestamp.strftime("%H:%M:%S")
-            date_str = timestamp.strftime("%d/%m/%Y")
-            action = "aperta" if state == "open" else "chiusa"
-            
-            reason = event_details.get("reason", "fuori orario")
-            if reason == "outside_schedule":
-                reason = "fuori dall'orario di assunzione"
-            elif reason == "multiple_openings":
-                reason = "aperture multiple ravvicinate"
-        
-            message = (
-                f"🚪 *APERTURA PORTA IRREGOLARE*\n\n"
-                f"⚠️ La porta del dispenser *{dispenser_name}* è stata {action} *in modo irregolare*!\n"
-                f"⏰ Orario: {time_str} del {date_str}\n"
-                f"📍 Posizione: {dt_name}\n"
-                f"❓ Motivo: {reason}\n\n"
-                f"👉 Si consiglia di verificare la situazione."
-            )
-            
-            # Invia la notifica a tutti gli utenti attivi del DT
-            if dts_with_dispenser:
-                dt_id = dts_with_dispenser[0]
-                self._send_notification_to_dt_users(dt_id, message)
-            else:
-                # MODIFICA QUI: invece di inviare un'emergenza, invia direttamente la notifica
-                # agli ID Telegram dell'utente proprietario del dispositivo
-                user_db_id = dispenser.get("user_db_id")
-                if user_db_id:
-                    # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
-                    dt_collection = self.db_service.db["digital_twins"]
-                    query = {"metadata.user_id": user_db_id}
-                    user_dt_docs = list(dt_collection.find(query))
-                    
-                    # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
-                    all_telegram_ids = set()
-                    for dt_doc in user_dt_docs:
-                        metadata = dt_doc.get("metadata", {})
-                        active_ids = metadata.get("active_telegram_ids", [])
-                        for id_val in active_ids:
-                            try:
-                                all_telegram_ids.add(int(id_val))
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    # Se non ci sono ID, usa l'ID di fallback
-                    if not all_telegram_ids:
-                        all_telegram_ids = {157933243}
-                    
-                    # Invia il messaggio di irregolarità (non di emergenza)
-                    from os import environ
-                    token = environ.get('TELEGRAM_TOKEN')
-                    if token:
-                        import requests
-                        for telegram_id in all_telegram_ids:
-                            url = f"https://api.telegram.org/bot{token}/sendMessage"
-                            data = {
-                                "chat_id": telegram_id,
-                                "text": message,
-                                "parse_mode": "Markdown"
-                            }
-                            requests.post(url, json=data)
-    
-        except Exception as e:
-            print(f"Errore nell'invio dell'allarme porta irregolare: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _send_adherence_notification(self, device_id, message_type, details):
-        """
-        Invia una notifica all'utente relativa all'aderenza alle terapie
-        """
-        try:
-            # Ottieni il dispenser dal database
-            dispenser = self.db_service.get_dr("dispenser_medicine", device_id)
-            if not dispenser:
-                return
-                
-            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
-            medicine_name = dispenser.get("data", {}).get("medicine_name", "Medicinale")
-            
-            # Trova il Digital Twin associato al dispositivo
-            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", device_id)
-            
-            # Costruisci il messaggio di notifica in base al tipo
-            if message_type == "missed_dose":
-                message = (
-                    f"💊 *DOSE MANCATA*\n\n"
-                    f"⚠️ Non è stata registrata l'assunzione di *{medicine_name}* dal dispenser *{dispenser_name}*\n"
-                    f"⏰ Era prevista alle: {details.get('scheduled_time', 'orario non specificato')}\n\n"
-                    f"👉 Ricorda di assumere il medicinale il prima possibile."
-                )
-            elif message_type == "low_adherence":
-                message = (
-                    f"📊 *BASSA ADERENZA RILEVATA*\n\n"
-                    f"⚠️ L'aderenza alla terapia con *{medicine_name}* è sotto il {details.get('adherence_rate', 0)}%\n"
-                    f"📱 Dispenser: *{dispenser_name}*\n\n"
-                    f"👉 Ricorda l'importanza di seguire regolarmente la terapia prescritta."
-                )
-            else:
-                message = (
-                    f"ℹ️ *NOTIFICA ADERENZA*\n\n"
-                    f"{details.get('custom_message', 'Messaggio relativo all\'aderenza alla terapia')}\n"
-                    f"📱 Dispenser: *{dispenser_name}*"
-                )
-        
-            # Invia la notifica a tutti gli utenti attivi del DT
-            if dts_with_dispenser:
-                dt_id = dts_with_dispenser[0]
-                self._send_notification_to_dt_users(dt_id, message)
-            else:
-                # Se non c'è un DT associato, usa la funzione di fallback
-                from os import environ
-                token = environ.get('TELEGRAM_TOKEN')
-                
-                if token:
-                    # ID di fallback
-                    telegram_id = 157933243
-                    
-                    import requests
-                    url = f"https://api.telegram.org/bot{token}/sendMessage"
-                    data = {
-                        "chat_id": telegram_id,
-                        "text": message,
-                        "parse_mode": "Markdown"
-                    }
-                    
-                    response = requests.post(url, json=data)
-                    if response.status_code == 200:
-                        print(f"Notifica aderenza inviata all'utente {telegram_id} (fallback)")
-                    else:
-                        print(f"Errore nell'invio della notifica: {response.status_code}")
-                
-        except Exception as e:
-            print(f"Errore nell'invio della notifica di aderenza: {e}")
-    
-    def _send_notification_to_dt_users(self, dt_id, message, fallback_id=157933243):
-        """
-        Funzione helper per inviare notifiche a tutti gli ID Telegram attivi di un DT
-        
-        Args:
-            dt_id (str): ID del Digital Twin
-            message (str): Messaggio da inviare
-            fallback_id (int): ID di fallback se non ci sono ID attivi
-        """
-        try:
-            # Ottieni il Digital Twin per accedere agli ID Telegram attivi
-            dt = None
-            if hasattr(self, 'dt_factory') and self.dt_factory:
-                dt = self.dt_factory.get_dt(dt_id)
-        
-            # Ottieni gli ID Telegram attivi dal DT
-            telegram_ids = []
-            if dt and "metadata" in dt and "active_telegram_ids" in dt["metadata"]:
-                # Converti esplicitamente tutti gli ID a int
-                try:
-                    # Gestisci sia liste di stringhe che di interi
-                    telegram_ids = [int(id_val) for id_val in dt["metadata"]["active_telegram_ids"]]
-                    print(f"DEBUG: IDs Telegram trovati per notifica: {telegram_ids}")
-                except (ValueError, TypeError) as e:
-                    print(f"ERRORE nella conversione degli ID Telegram: {e}")
-        
-        # Se non ci sono ID attivi, usa l'ID di fallback
-            if not telegram_ids:
-                telegram_ids = [fallback_id]
-                print(f"ATTENZIONE: Nessun ID Telegram trovato, uso ID di fallback {fallback_id}")
-        
-            # Ottieni il token del bot dalle variabili d'ambiente
-            from os import environ
-            token = environ.get('TELEGRAM_TOKEN')
-        
-            if not token:
-                print("ERRORE: Token Telegram non trovato per notifica")
-                return
-        
-            # Invia il messaggio a tutti gli ID Telegram attivi
-            import requests
-            successful_sends = 0
-            for telegram_id in telegram_ids:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                data = {
-                    "chat_id": telegram_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                
-                response = requests.post(url, json=data)
-                if response.status_code == 200:
-                    print(f"Notifica inviata all'ID Telegram: {telegram_id}")
-                    successful_sends += 1
-                else:
-                    print(f"Errore nell'invio notifica a {telegram_id}: {response.status_code} - {response.text}")
-        
-            return successful_sends
-                
-        except Exception as e:
-            print(f"Errore nell'invio della notifica: {e}")
-            import traceback
-            traceback.print_exc()
-            return 0
