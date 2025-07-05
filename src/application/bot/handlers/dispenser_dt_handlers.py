@@ -210,14 +210,52 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
     db_service = context.application.bot_data['db_service']
 
     try:
-        # --- INIZIO MODIFICA CRUCIALE ---
-        # Accediamo alla collezione dei DT direttamente, come fa /list_dt
-        user_dt_docs = db_service.query_drs("digital_twins", {"metadata.user_id": user_db_id})
-        if not user_dt_docs:
-            await update.message.reply_text("ℹ️ Non hai Digital Twin registrati. Creane uno con `/create_dt <nome>`.")
-            return
-        # --- FINE MODIFICA CRUCIALE ---
+        # Aggiungi debugging per vedere cosa contiene il database
+        print(f"DEBUG: Cercando DT per utente {user_db_id}")
         
+        # Accedi direttamente alla collezione MongoDB
+        dt_collection = db_service.db["digital_twins"]
+        
+        # Prova diverse posizioni possibili per l'ID utente
+        # Usa una query OR per cercare in più campi
+        user_dt_docs = list(dt_collection.find({
+            "$or": [
+                {"metadata.user_id": user_db_id},   # Posizione standard
+                {"user_id": user_db_id},            # Direttamente nel documento
+                {"user_db_id": user_db_id},         # Nome alternativo
+                {"owner": user_db_id}               # Altro nome possibile
+            ]
+        }))
+        
+        # Debug: stampa cosa abbiamo trovato
+        print(f"DEBUG: Trovati {len(user_dt_docs)} DT usando query OR")
+        
+        if not user_dt_docs:
+            # Prova anche con l'altra variante (se user_db_id è una stringa, prova come ObjectId)
+            from bson import ObjectId
+            try:
+                obj_id = ObjectId(user_db_id) if isinstance(user_db_id, str) else str(user_db_id)
+                user_dt_docs = list(dt_collection.find({
+                    "$or": [
+                        {"metadata.user_id": obj_id},
+                        {"user_id": obj_id},
+                        {"user_db_id": obj_id},
+                        {"owner": obj_id}
+                    ]
+                }))
+                print(f"DEBUG: Seconda ricerca ha trovato {len(user_dt_docs)} DT")
+            except:
+                pass
+        
+        # Stampa un documento di esempio per vedere la struttura
+        if user_dt_docs:
+            print(f"DEBUG: Struttura documento DT: {user_dt_docs[0]}")
+            
+        # Se ancora non abbiamo trovato nulla, mostra il messaggio
+        if not user_dt_docs:
+            await update.message.reply_text("ℹ️ Non hai Digital Twin registrati. Creane uno con `/create_smart_home <nome>`.", parse_mode="Markdown")
+            return
+
         await update.message.reply_text(f"🔍 Eseguo il controllo delle irregolarità su {len(user_dt_docs)} Digital Twin...")
 
         all_alerts_messages = []
@@ -235,11 +273,39 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
             
             if alerts and any(alert_list for alert_list in alerts.values()):
                 dt_alert_message = f"🚨 *Alert per DT '{dt_name}':*\n"
+                
+                # Controlla alert per porte aperte troppo a lungo
                 door_alerts = alerts.get("door_alerts", [])
                 if door_alerts:
                     dt_alert_message += "  🚪 *Porte aperte da troppo tempo:*\n"
                     for alert in door_alerts:
                         dt_alert_message += f"    - Dispenser: *{alert['dispenser_name']}* ({alert['minutes_open']} min)\n"
+                
+                # Controlla alert per irregolarità nell'assunzione dei medicinali
+                medication_alerts = alerts.get("medication_alerts", [])
+                if medication_alerts:
+                    dt_alert_message += "  💊 *Irregolarità assunzione medicinali:*\n"
+                    for alert in medication_alerts:
+                        dt_alert_message += f"    - Dispenser: *{alert['dispenser_name']}* (Giorni mancanti: {alert.get('missing_days', '?')})\n"
+                
+                # Controlla alert per condizioni ambientali anomale
+                environmental_alerts = alerts.get("environmental_alerts", [])
+                if environmental_alerts:
+                    dt_alert_message += "  🌡️ *Condizioni ambientali anomale:*\n"
+                    for alert in environmental_alerts:
+                        tipo = "temperatura" if alert.get("type") == "temperature" else "umidità" if alert.get("type") == "humidity" else alert.get("type", "sconosciuto")
+                        dt_alert_message += f"    - {tipo.capitalize()}: *{alert.get('value', '?')}{alert.get('unit', '')}* (Sensore: {alert.get('location', 'sconosciuto')})\n"
+                
+                # Controlla emergenze attive nei dispenser collegati
+                dispenser_replicas = [r for r in dt_doc.get("digital_replicas", []) if r.get("type") == "dispenser_medicine"]
+                for replica in dispenser_replicas:
+                    dispenser_id = replica.get("id")
+                    if dispenser_id:
+                        dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
+                        if dispenser and dispenser.get("data", {}).get("emergency_active", False):
+                            dt_alert_message += "  🚑 *Emergenze attive:*\n"
+                            dispenser_name = dispenser.get("data", {}).get("name", "Dispenser sconosciuto")
+                            dt_alert_message += f"    - Dispenser: *{dispenser_name}* (Richiesta emergenza attiva)\n"
                 
                 all_alerts_messages.append(dt_alert_message)
 
