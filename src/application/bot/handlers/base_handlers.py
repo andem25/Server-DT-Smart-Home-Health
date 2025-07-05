@@ -42,7 +42,6 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         help_text += "\n*🤖 GESTIONE SMART HOME HEALTH*\n"
         help_text += "• `/create_smart_home <nome> [descrizione]` - Crea un nuovo Digital Twin completo\n"
-        help_text += "• `/create_unique_dt <nome> [descrizione]` - Crea DT con nome reso univoco automaticamente\n"
         help_text += "• `/list_smart_homes` - Mostra tutti i tuoi Digital Twin\n"
         
         help_text += "\nIl Digital Twin creato includerà tutti i 9 servizi richiesti (FR-1 a FR-9):\n"
