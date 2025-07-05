@@ -80,11 +80,10 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text += "4. Imposta intervallo: `/set_dispenser_interval disp1 08-20`\n"
     help_text += "5. Crea Digital Twin: `/create_smart_home CasaSmart \"DT per la mia casa\"`\n"
     help_text += "6. Visualizza DT con `/list_smart_homes` per ottenere il suo `<dt_id>`\n"
-    
-    # --- ESEMPIO CORRETTO ---
     help_text += "7. Collega dispenser al DT: `/link_dispenser <dt_id> disp1`\n"
-    
-    help_text += "8. Visualizza dispositivi collegati: `/smart_home_devices <dt_id>`\n\n"
+    help_text += "8. Visualizza dispositivi collegati: `/smart_home_devices <dt_id>`\n"
+    help_text += "9. Elimina un Digital Twin: `/delete_smart_home <dt_id>`\n"
+    help_text += "10. Elimina un dispenser: `/delete_dispenser disp1`\n\n"
     
     # Sezione risoluzione problemi
     help_text += "*🔧 RISOLUZIONE PROBLEMI*\n"

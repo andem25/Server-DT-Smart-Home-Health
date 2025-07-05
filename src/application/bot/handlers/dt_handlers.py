@@ -163,3 +163,67 @@ async def show_dt_telegram_ids_handler(update: Update, context: ContextTypes.DEF
         import traceback
         traceback.print_exc()
         await update.message.reply_text(f"❌ Errore durante il recupero degli ID: {e}")
+
+async def delete_dt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Elimina un Digital Twin dell'utente e tutti i servizi associati."""
+    user_db_id = context.user_data.get('user_db_id')
+    if not user_db_id:
+        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
+        return
+
+    # Verifica che l'ID del DT sia stato fornito
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text(
+            "❗ Uso: `/delete_smart_home <dt_id>`\n\n"
+            "Esempio: `/delete_smart_home 64abcd12ef34`\n\n"
+            "Usa `/list_smart_homes` per vedere i tuoi Digital Twin disponibili.",
+            parse_mode="Markdown"
+        )
+        return
+
+    dt_id = context.args[0]
+    
+    try:
+        # Ottieni i servizi necessari
+        dt_factory = context.application.bot_data.get('dt_factory')
+        if not dt_factory:
+            await update.message.reply_text("❌ Errore interno: DT Factory non disponibile.")
+            return
+        
+        # Verifica che il DT esista e appartenga all'utente
+        dt = dt_factory.get_dt(dt_id)
+        if not dt:
+            await update.message.reply_text("❌ Digital Twin non trovato. Controlla l'ID e riprova.")
+            return
+            
+        if dt.get('metadata', {}).get('user_id') != user_db_id:
+            await update.message.reply_text("❌ Non hai i permessi per eliminare questo Digital Twin.")
+            return
+        
+        dt_name = dt.get('name', 'Digital Twin')
+        
+        # Ottieni l'istanza del DT per terminare i servizi attivi
+        dt_instance = dt_factory.get_dt_instance(dt_id)
+        if dt_instance:
+            # Termina tutti i servizi attivi
+            services = dt_instance.list_services()
+            for service_name in services:
+                try:
+                    dt_instance.remove_service(service_name)
+                except Exception as e:
+                    print(f"Errore nella terminazione del servizio {service_name}: {e}")
+
+        # Elimina il DT dal database
+        dt_factory.delete_dt(dt_id)
+        
+        await update.message.reply_text(
+            f"✅ Digital Twin '{dt_name}' (`{dt_id}`) eliminato con successo.\n\n"
+            "Tutti i servizi associati sono stati terminati e i dati rimossi dal database.",
+            parse_mode="Markdown"
+        )
+    
+    except Exception as e:
+        print(f"Errore in delete_dt_handler: {e}")
+        import traceback
+        traceback.print_exc()
+        await update.message.reply_text(f"❌ Errore durante l'eliminazione del Digital Twin: {str(e)}")

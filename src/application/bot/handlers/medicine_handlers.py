@@ -522,3 +522,94 @@ async def set_medicine_time_handler(update: Update, context: ContextTypes.DEFAUL
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante l'impostazione dell'intervallo orario: {e}")
         print(f"Errore in set_medicine_time_handler: {e}")
+
+# --- Elimina un dispenser ---
+async def delete_dispenser_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Elimina un dispenser dell'utente e lo dissocia da tutti i Digital Twin."""
+    user_db_id = context.user_data.get('user_db_id')
+    if not user_db_id:
+        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
+        return
+
+    # Verifica che l'ID del dispenser sia stato fornito
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text(
+            "❗ Uso: `/delete_dispenser <dispenser_id>`\n\n"
+            "Esempio: `/delete_dispenser disp1`\n\n"
+            "Usa `/my_dispensers` per vedere i tuoi dispenser disponibili.",
+            parse_mode="Markdown"
+        )
+        return
+
+    dispenser_id = context.args[0]
+    
+    try:
+        # Ottieni i servizi necessari
+        dt_factory = context.application.bot_data.get('dt_factory')
+        db_service = context.application.bot_data.get('db_service')
+        
+        if not dt_factory or not db_service:
+            await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
+            return
+        
+        # Verifica che il dispenser esista e appartenga all'utente
+        dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
+        if not dispenser:
+            await update.message.reply_text("❌ Dispenser non trovato. Controlla l'ID e riprova.")
+            return
+            
+        if dispenser.get('user_db_id') != user_db_id:
+            await update.message.reply_text("❌ Non hai i permessi per eliminare questo dispenser.")
+            return
+        
+        dispenser_name = dispenser.get('data', {}).get('name', 'Dispenser')
+        
+        # Trova tutti i Digital Twin a cui è collegato il dispenser
+        # Usa la stessa logica di MqttSubscriber._find_dts_with_dr
+        collection = db_service.db["digital_twins"]
+        query = {"digital_replicas": {"$elemMatch": {"id": dispenser_id, "type": "dispenser_medicine"}}}
+        connected_dts = []
+        
+        for dt in collection.find(query):
+            connected_dts.append(str(dt.get("_id")))
+        
+        # Rimuovi il dispenser da tutti i Digital Twin trovati
+        for dt_id in connected_dts:
+            try:
+                dt_doc = dt_factory.get_dt(dt_id)
+                dt_name = dt_doc.get('name', 'Digital Twin')
+                
+                # Rimuovi la digital replica dal documento DT
+                digital_replicas = dt_doc.get('digital_replicas', [])
+                updated_replicas = [dr for dr in digital_replicas if not (dr.get('id') == dispenser_id and dr.get('type') == 'dispenser_medicine')]
+                
+                # Aggiorna il documento DT con le digital replicas filtrate
+                collection.update_one(
+                    {"_id": dt_id},
+                    {"$set": {"digital_replicas": updated_replicas}}
+                )
+                
+                print(f"Dispenser {dispenser_id} rimosso dal Digital Twin {dt_id}")
+            except Exception as e:
+                print(f"Errore nella rimozione del dispenser {dispenser_id} dal Digital Twin {dt_id}: {e}")
+        
+        # Elimina il dispenser dal database
+        db_service.delete_dr("dispenser_medicine", dispenser_id)
+        
+        # Prepara il messaggio di conferma
+        if connected_dts:
+            dt_message = f"Dissociato da {len(connected_dts)} Digital Twin."
+        else:
+            dt_message = "Non era collegato a nessun Digital Twin."
+            
+        await update.message.reply_text(
+            f"✅ Dispenser '{dispenser_name}' (`{dispenser_id}`) eliminato con successo.\n\n"
+            f"{dt_message}",
+            parse_mode="Markdown"
+        )
+    
+    except Exception as e:
+        print(f"Errore in delete_dispenser_handler: {e}")
+        import traceback
+        traceback.print_exc()
+        await update.message.reply_text(f"❌ Errore durante l'eliminazione del dispenser: {str(e)}")

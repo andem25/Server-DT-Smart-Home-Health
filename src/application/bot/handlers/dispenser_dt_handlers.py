@@ -14,12 +14,12 @@ async def add_dispenser_to_dt_handler(update: Update, context: ContextTypes.DEFA
 
     if len(context.args) != 2:
         await update.message.reply_text(
-            "❗ **Uso Corretto:**\n`/add_dispenser_dt <dt_id> <dispenser_id>`\n\n"
+            "❗ **Uso Corretto:**\n`/link_dispenser <dt_id> <dispenser_id>`\n\n"
             "**Esempio:**\n"
-            "`/add_dispenser_dt 68584c95-ce9c-... 001-paracetamolo`\n\n"
+            "`/link_dispenser 68584c95-ce9c-... 001-paracetamolo`\n\n"
             "📝 **Come trovare gli ID:**\n"
-            "- Usa `/list_dt` per l'ID del Digital Twin (`dt_id`).\n"
-            "- Usa `/my_medicines` per l'ID del dispenser (`dispenser_id`).",
+            "- Usa `/list_smart_homes` per l'ID del Digital Twin (`dt_id`).\n"
+            "- Usa `/my_dispensers` per l'ID del dispenser (`dispenser_id`).",
             parse_mode="Markdown"
         )
         return
@@ -35,26 +35,66 @@ async def add_dispenser_to_dt_handler(update: Update, context: ContextTypes.DEFA
             await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
             return
         
+        # Verifica che il DT esista e appartenga all'utente
         dt = dt_factory.get_dt(dt_id)
         if not dt or dt.get('metadata', {}).get('user_id') != user_db_id:
             await update.message.reply_text("❌ Digital Twin non trovato o non ti appartiene.")
             return
 
+        # Verifica che il dispenser esista e appartenga all'utente
         dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
         if not dispenser or dispenser.get('user_db_id') != user_db_id:
             await update.message.reply_text("❌ Dispenser non trovato o non ti appartiene.")
             return
 
-        dt_manager.register_device(dt_id, "dispenser_medicine", dispenser_id)
-        
+        # Ottieni informazioni descrittive
         dispenser_name = dispenser.get('data', {}).get('name', 'Sconosciuto')
         dt_name = dt.get('name', 'Sconosciuto')
 
-        await update.message.reply_text(
-            f"✅ Dispenser '{dispenser_name}' (`{dispenser_id}`) collegato con successo al Digital Twin '{dt_name}' (`{dt_id}`)."
-        )
+        # Verifica se il dispenser è già collegato ad altri Digital Twin
+        collection = db_service.db["digital_twins"]
+        query = {"digital_replicas": {"$elemMatch": {"id": dispenser_id, "type": "dispenser_medicine"}}}
+        connected_dts = []
+        
+        for connected_dt in collection.find(query):
+            connected_dt_id = str(connected_dt.get("_id"))
+            # Non includere il DT di destinazione se già c'è
+            if connected_dt_id != dt_id:
+                connected_dts.append(connected_dt)
+        
+        # Se il dispenser è già collegato ad altri DT, rimuoverlo da quelli
+        transfer_message = ""
+        if connected_dts:
+            for old_dt in connected_dts:
+                old_dt_id = str(old_dt.get("_id"))
+                old_dt_name = old_dt.get('name', 'Digital Twin')
+                
+                # Rimuovi la digital replica dal documento DT
+                digital_replicas = old_dt.get('digital_replicas', [])
+                updated_replicas = [dr for dr in digital_replicas if not (dr.get('id') == dispenser_id and dr.get('type') == "dispenser_medicine")]
+                
+                # Aggiorna il documento DT con le digital replicas filtrate
+                collection.update_one(
+                    {"_id": old_dt_id},
+                    {"$set": {"digital_replicas": updated_replicas}}
+                )
+                
+                transfer_message = f"⚠️ Il dispenser era collegato a '{old_dt_name}' ed è stato spostato."
+                print(f"Dispenser {dispenser_id} rimosso dal Digital Twin {old_dt_id} e spostato a {dt_id}")
+        
+        # Ora registra il dispenser nel nuovo DT
+        dt_manager.register_device(dt_id, "dispenser_medicine", dispenser_id)
+        
+        # Prepara il messaggio di risposta
+        response_message = f"✅ Dispenser '{dispenser_name}' (`{dispenser_id}`) collegato con successo al Digital Twin '{dt_name}' (`{dt_id}`)."
+        if transfer_message:
+            response_message = f"{response_message}\n\n{transfer_message}"
+        
+        await update.message.reply_text(response_message, parse_mode="Markdown")
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         await update.message.reply_text(f"❌ Errore durante il collegamento del dispenser: {str(e)}")
 
 async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

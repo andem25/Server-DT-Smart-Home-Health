@@ -16,7 +16,7 @@ import threading
 from src.digital_twin.dt_factory import DTFactory
 from src.digital_twin.dt_manager import DTManager
 
-from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler, show_dt_telegram_ids_handler
+from src.application.bot.handlers.dt_handlers import create_dt_handler, list_dt_handler, show_dt_telegram_ids_handler, delete_dt_handler
 from src.application.bot.handlers.dispenser_dt_handlers import add_dispenser_to_dt_handler, list_dt_devices_handler, check_irregularities_handler
 from src.application.bot.handlers.message_handlers import send_message_to_dispenser_handler
 from src.services.scheduler_service import SchedulerService
@@ -40,7 +40,8 @@ from src.application.bot.handlers.medicine_handlers import (
     list_my_medicines_handler,
     show_regularity_handler,
     show_weekly_adherence_handler,
-    set_medicine_time_handler,  # Aggiungi questa riga
+    set_medicine_time_handler,
+    delete_dispenser_handler,  # Aggiungi questa riga
 )
 
 from src.services.database_service import DatabaseService 
@@ -82,6 +83,7 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("set_dispenser_time", set_medicine_time_handler))
     application.add_handler(CommandHandler("dispenser_history", show_regularity_handler))
     application.add_handler(CommandHandler("dispenser_adherence", show_weekly_adherence_handler))
+    application.add_handler(CommandHandler("delete_dispenser", delete_dispenser_handler))  # Aggiungi questa riga
     
     # Nuovo handler per l'invio di messaggi
     application.add_handler(CommandHandler("send_dispenser_message", send_message_to_dispenser_handler))
@@ -93,6 +95,7 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("smart_home_devices", list_dt_devices_handler))
     application.add_handler(CommandHandler("check_smart_home_alerts", check_irregularities_handler))
     application.add_handler(CommandHandler("smart_home_telegrams", show_dt_telegram_ids_handler))
+    application.add_handler(CommandHandler("delete_smart_home", delete_dt_handler))  # Aggiungi questa riga
     
     # Handler per dati ambientali e eventi porta
     from src.application.bot.handlers.environmental_handlers import show_environmental_data_handler, set_environmental_limits_handler
