@@ -401,17 +401,19 @@ class MqttSubscriber:
                             # Passa la misurazione al servizio
                             env_service.process_measurement(device_id, measurement)
                         
-                        # Verifica anche il servizio di irregolarità che potrebbe usare i dati ambientali
-                        irreg_service = dt_instance.get_service("IrregularityAlertService")
-                        if irreg_service:
-                            # Eseguiamo una verifica delle irregolarità
+                        # Verifica irregolarità direttamente dal servizio ambientale
+                        env_service = dt_instance.get_service("EnvironmentalMonitoringService")
+                        if env_service:
+                            # Verifica delle irregolarità ambientali
                             dt_data = dt_instance.get_dt_data()
-                            alerts = irreg_service.execute(dt_data)
+                            env_alerts = env_service.check_environmental_irregularities(
+                                dt_data, temp_range=(env_service.temperature_range[0], env_service.temperature_range[1])
+                            )
                             
-                            # Se ci sono alert ambientali, potremmo volerli gestire qui
-                            if alerts.get("environmental_alerts"):
-                                print(f"Rilevate irregolarità ambientali per DT {dt_id}")
-                                
+                            # Se ci sono alert ambientali, gestiamoli qui
+                            if env_alerts:
+                                print(f"Rilevate {len(env_alerts)} irregolarità ambientali per DT {dt_id}")
+                
                 except Exception as e:
                     print(f"Errore nell'aggiornamento dei servizi del DT {dt_id}: {e}")
                 

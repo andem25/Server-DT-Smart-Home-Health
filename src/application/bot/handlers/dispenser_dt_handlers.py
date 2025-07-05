@@ -198,8 +198,8 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
         
 async def check_irregularities_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Esegue il servizio di controllo irregolarità su TUTTI i DT dell'utente 
-    e notifica i risultati.
+    Esegue il controllo delle irregolarità su TUTTI i DT dell'utente 
+    e notifica i risultati - versione senza IrregularityAlertService
     """
     user_db_id = context.user_data.get('user_db_id')
     if not user_db_id:
@@ -216,8 +216,7 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
         # Accedi direttamente alla collezione MongoDB
         dt_collection = db_service.db["digital_twins"]
         
-        # Prova diverse posizioni possibili per l'ID utente
-        # Usa una query OR per cercare in più campi
+        # Cerca i DT dell'utente
         user_dt_docs = list(dt_collection.find({
             "$or": [
                 {"metadata.user_id": user_db_id},   # Posizione standard
@@ -226,9 +225,6 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
                 {"owner": user_db_id}               # Altro nome possibile
             ]
         }))
-        
-        # Debug: stampa cosa abbiamo trovato
-        print(f"DEBUG: Trovati {len(user_dt_docs)} DT usando query OR")
         
         if not user_dt_docs:
             # Prova anche con l'altra variante (se user_db_id è una stringa, prova come ObjectId)
@@ -243,13 +239,8 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
                         {"owner": obj_id}
                     ]
                 }))
-                print(f"DEBUG: Seconda ricerca ha trovato {len(user_dt_docs)} DT")
             except:
                 pass
-        
-        # Stampa un documento di esempio per vedere la struttura
-        if user_dt_docs:
-            print(f"DEBUG: Struttura documento DT: {user_dt_docs[0]}")
             
         # Se ancora non abbiamo trovato nulla, mostra il messaggio
         if not user_dt_docs:
@@ -269,9 +260,40 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
                 all_alerts_messages.append(f"⚠️ Errore nel caricamento del DT '{dt_name}'.")
                 continue
 
-            alerts = dt_instance.execute_service("IrregularityAlertService")
+            # Raccogliamo irregolarità direttamente dai servizi
+            dt_data = dt_instance.get_dt_data()
+            alerts = {
+                "medication_alerts": [],
+                "door_alerts": [],
+                "environmental_alerts": []
+            }
             
-            if alerts and any(alert_list for alert_list in alerts.values()):
+            # Verifica irregolarità nei medicinali
+            medication_service = dt_instance.get_service("MedicationReminderService")
+            if medication_service:
+                # Passa le dipendenze necessarie
+                medication_service.db_service = db_service
+                medication_service.dt_factory = dt_factory
+                alerts["medication_alerts"] = medication_service.check_adherence_irregularities(dt_data)
+            
+            # Verifica irregolarità nelle porte
+            door_service = dt_instance.get_service("DoorEventService")
+            if door_service:
+                # Passa le dipendenze necessarie
+                door_service.db_service = db_service
+                door_service.dt_factory = dt_factory
+                alerts["door_alerts"] = door_service.check_door_irregularities(dt_data)
+            
+            # Verifica irregolarità ambientali
+            env_service = dt_instance.get_service("EnvironmentalMonitoringService")
+            if env_service:
+                # Passa le dipendenze necessarie
+                env_service.db_service = db_service
+                env_service.dt_factory = dt_factory
+                alerts["environmental_alerts"] = env_service.check_environmental_irregularities(dt_data)
+            
+            # Ora procediamo come prima con gli alert raccolti
+            if any(alert_list for alert_list in alerts.values()):
                 dt_alert_message = f"🚨 *Alert per DT '{dt_name}':*\n"
                 
                 # Controlla alert per porte aperte troppo a lungo

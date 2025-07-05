@@ -11,18 +11,6 @@ class DTManager:
     def __init__(self, dt_factory: DTFactory):
         self.dt_factory = dt_factory
         
-    def create_home_health_dt(self, user_id: str, name: str) -> str:
-        """Crea un Digital Twin completo per il monitoraggio sanitario domestico"""
-        dt_id = self.dt_factory.create_dt(name=name, description=f"Health monitoring DT for user {user_id}")
-        
-        # Aggiungi i servizi richiesti
-        self.dt_factory.add_service(dt_id, "ReminderService", {"channels": ["telegram"]})
-        self.dt_factory.add_service(dt_id, "AlertService", {"threshold": 2})
-        self.dt_factory.add_service(dt_id, "LoggingService")
-        self.dt_factory.add_service(dt_id, "EmergencyService", {"contacts": ["supervisor"]})
-        self.dt_factory.add_service(dt_id, "IrregularityAlertService")
-
-        return dt_id
     
     def register_device(self, dt_id: str, dr_type: str, device_id: str) -> None:
         """
@@ -149,13 +137,7 @@ class DTManager:
                     "log_frequency": "real-time",
                     "storage_duration": "90d"
                 }),
-                # FR-5: Irregularity Alert
-                ("IrregularityAlertService", {
-                    "missed_doses_threshold": 2,
-                    "door_open_alert_time": 30,
-                    "min_temperature": 18,
-                    "max_temperature": 30
-                }),
+                # FR-5: Irregularity Alert - RIMOSSO perché i servizi specifici gestiscono già le irregolarità
                 # FR-6: Emergency Help Request
                 ("EmergencyRequestService", {
                     "emergency_contacts": ["supervisor"],

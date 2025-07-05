@@ -300,14 +300,15 @@ class EnvironmentalMonitoringService(BaseService):
                         dt_instance = dt_factory.get_dt_instance(dt_id)
                         if dt_instance:
                             # Verifica servizio di irregolarità che potrebbe usare i dati ambientali
-                            irreg_service = dt_instance.get_service("IrregularityAlertService")
-                            if irreg_service:
-                                # Verifica delle irregolarità
+                            env_service = dt_instance.get_service("EnvironmentalMonitoringService")
+                            if env_service:
+                                # Verifica delle irregolarità ambientali direttamente
                                 dt_data = dt_instance.get_dt_data()
-                                alerts = irreg_service.execute(dt_data)
+                                env_alerts = env_service.check_environmental_irregularities(dt_data)
                                 
-                                if alerts.get("environmental_alerts"):
-                                    print(f"Rilevate irregolarità ambientali per DT {dt_id}")
+                                # Se ci sono alert ambientali, gestiamoli qui
+                                if env_alerts:
+                                    print(f"Rilevate {len(env_alerts)} irregolarità ambientali per DT {dt_id}")
                     except Exception as e:
                         print(f"Errore nell'aggiornamento dei servizi del DT {dt_id}: {e}")
         
@@ -315,3 +316,48 @@ class EnvironmentalMonitoringService(BaseService):
             print(f"Errore nella gestione dei dati ambientali: {e}")
             import traceback
             traceback.print_exc()
+    
+    def check_environmental_irregularities(self, dt_data, temp_range=None):
+        """Verifica le condizioni ambientali"""
+        alerts = []
+        
+        # Se non viene fornito un range, usa i valori di default del servizio
+        min_temp, max_temp = temp_range if temp_range else (self.temperature_range[0], self.temperature_range[1])
+        
+        env_sensors = [dr for dr in dt_data.get("digital_replicas", []) if dr.get("type") == "environmental_sensor"]
+        
+        for sensor in env_sensors:
+            measures = sensor.get("data", {}).get("measures", [])
+            if not measures:
+                continue
+                
+            # Trova l'ultima misura di temperatura
+            temp_measures = [m for m in measures if m.get("type") == "temperature"]
+            if not temp_measures:
+                continue
+                
+            latest_temp = sorted(temp_measures, key=lambda x: x.get("timestamp"), reverse=True)[0]
+            temp_value = latest_temp.get("value")
+            
+            if temp_value < min_temp:
+                alerts.append({
+                    "type": "low_temperature",
+                    "sensor_id": sensor.get("_id"),
+                    "location": sensor.get("data", {}).get("location", "sconosciuta"),
+                    "value": temp_value,
+                    "unit": latest_temp.get("unit", "°C"),
+                    "severity": "medium",
+                    "timestamp": datetime.now()
+                })
+            elif temp_value > max_temp:
+                alerts.append({
+                    "type": "high_temperature",
+                    "sensor_id": sensor.get("_id"),
+                    "location": sensor.get("data", {}).get("location", "sconosciuta"),
+                    "value": temp_value,
+                    "unit": latest_temp.get("unit", "°C"),
+                    "severity": "medium",
+                    "timestamp": datetime.now()
+                })
+        
+        return alerts

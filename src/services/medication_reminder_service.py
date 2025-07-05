@@ -256,3 +256,34 @@ class MedicationReminderService(BaseService):
         # usando db_service.update_dr("dispenser_medicine", dispenser_id, ...)
         # Ma per semplicità qui stampiamo solo un messaggio
         print(f"Registrato promemoria inviato per dispenser {dispenser_id}")
+
+    def check_adherence_irregularities(self, dt_data, threshold=1):
+        """Verifica l'aderenza ai farmaci e rileva irregolarità"""
+        alerts = []
+        dispensers = [dr for dr in dt_data.get("digital_replicas", []) if dr.get("type") == "dispenser_medicine"]
+        
+        for dispenser in dispensers:
+            dispenser_name = dispenser.get("data", {}).get("name", "medicinale")
+            regularity = dispenser.get("data", {}).get("regularity", [])
+            
+            # Controlla se negli ultimi giorni ci sono state assunzioni mancate
+            today = datetime.now().date()
+            missing_days = 0
+            
+            for i in range(1, 4):  # controlla gli ultimi 3 giorni
+                check_date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+                day_entries = [r for r in regularity if r.get("date") == check_date]
+                if not day_entries:
+                    missing_days += 1
+            
+            if missing_days >= threshold:
+                alerts.append({
+                    "type": "missed_medication",
+                    "dispenser_id": dispenser.get("_id"),
+                    "dispenser_name": dispenser_name,
+                    "missing_days": missing_days,
+                    "severity": "high" if missing_days >= 3 else "medium",
+                    "timestamp": datetime.now()
+                })
+                
+        return alerts
