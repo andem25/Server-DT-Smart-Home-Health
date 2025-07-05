@@ -33,7 +33,6 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_logged_in:
         help_text += "• `/add_dispenser <id_univoco> <nome>` - Registra un nuovo dispenser\n"
         help_text += "• `/my_dispensers` - Mostra tutti i tuoi dispenser registrati\n"
-        help_text += "• `/set_dispenser_interval <id_dispenser> <intervallo>` - Imposta l'intervallo di assunzione (es. 08-20)\n"
         help_text += "• `/set_dispenser_time <id_dispenser> <inizio> <fine>` - Imposta orario preciso per assunzione (es: 19:30 20:00)\n"
         help_text += "• `/dispenser_history <id_dispenser>` - Mostra lo storico assunzioni per un dispenser\n"
         help_text += "• `/send_dispenser_message <id_dispenser> <messaggio>` - Invia un messaggio al dispenser\n"

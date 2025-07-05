@@ -183,8 +183,8 @@ async def list_my_medicines_handler(update: Update, context: ContextTypes.DEFAUL
         for d in my_dispensers:
             name = d.get('data', {}).get('name', 'Nome mancante')
             disp_id = d.get('_id', 'ID mancante') # Questo è l'ID (ora fornito dall'utente)
-            interval = d.get('data', {}).get('interval', 'Non impostato')
-            msg += f"- Nome: '{name}'\n  ID: `{disp_id}`\n  Intervallo: {interval}\n\n"
+            
+            msg += f"- Nome: '{name}'\n  ID: `{disp_id}`\n\n"
 
         await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -193,54 +193,6 @@ async def list_my_medicines_handler(update: Update, context: ContextTypes.DEFAUL
         print(f"Errore in list_my_medicines_handler: {e}")
 
 
-# --- Imposta l'intervallo per un dispenser (usando l'ID) ---
-async def set_interval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Imposta l'intervallo di assunzione usando l'ID univoco del dispenser."""
-    user_db_id = context.user_data.get('user_db_id')
-    if not user_db_id:
-        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
-        return
-
-    if len(context.args) < 2:
-        await update.message.reply_text("❗ Usa: /set_interval <dispenser_id> <intervallo>\n(Trovi il <dispenser_id> con /list_my_medicines)")
-        return
-
-    dispenser_id = context.args[0]
-    intervallo = context.args[1]
-
-    if not re.match(r"^[0-2]?[0-9]-[0-2]?[0-9]$", intervallo):
-         await update.message.reply_text("❌ Formato intervallo non valido. Usa HH-HH (es: 08-20).")
-         return
-
-    # --- CORREZIONE ACCESSO DB ---
-    try:
-        db: DatabaseService = context.application.bot_data['db_service']
-    except KeyError:
-        await update.message.reply_text("❌ Errore interno: Servizio database non disponibile.")
-        print("Errore critico: 'db_service' non trovato in application.bot_data")
-        return
-    # --- FINE CORREZIONE ---
-
-    try:
-        dispenser = db.get_dr("dispenser_medicine", dispenser_id)
-
-        if not dispenser:
-            await update.message.reply_text(f"❌ Dispenser con ID `{dispenser_id}` non trovato.")
-            return
-
-        if dispenser.get("user_db_id") != user_db_id:
-            await update.message.reply_text("❌ Non sei autorizzato a modificare questo dispenser.")
-            return
-
-        db.update_dr("dispenser_medicine", dispenser_id, {"$set": {"data.interval": intervallo}})
-        dispenser_name = dispenser.get("data", {}).get("name", dispenser_id)
-        await update.message.reply_text(f"✅ Intervallo '{intervallo}' impostato per '{dispenser_name}' (ID: `{dispenser_id}`).")
-
-    except ValueError as e:
-        await update.message.reply_text(f"❌ Errore dati durante l'aggiornamento: {e}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Errore imprevisto durante l'impostazione dell'intervallo: {e}")
-        print(f"Errore in set_interval_handler: {e}")
 
 
 # --- Mostra la regolarità di un dispenser (usando l'ID) ---
@@ -295,7 +247,7 @@ async def show_regularity_handler(update: Update, context: ContextTypes.DEFAULT_
 
     except Exception as e:
         await update.message.reply_text(f"❌ Errore durante il recupero della regolarità: {e}")
-        print(f"Errore in show_regolarity_handler: {e}")
+        print(f"Errore in show_regularity_handler: {e}")
 
 
 # --- Mostra l'aderenza settimanale con tick e X per ogni dispenser ---

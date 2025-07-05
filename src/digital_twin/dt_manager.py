@@ -48,7 +48,8 @@ class DTManager:
             print(f"Errore nel collegamento del dispositivo {device_id} al DT {dt_id}: {e}")
             raise
     
-    def create_dispenser(self, user_id: str, dt_id: str, medicine_name: str, dosage: str = "", interval: str = "08-20", frequency: int = 1) -> str:
+    def create_dispenser(self, user_id: str, dt_id: str, medicine_name: str, dosage: str = "", 
+                    start_time: str = "08:00", end_time: str = "20:00", frequency: int = 1) -> str:
         """
         Crea un nuovo dispenser di medicinali e restituisce il suo ID
 
@@ -57,7 +58,8 @@ class DTManager:
             dt_id: ID del Digital Twin a cui associare il dispenser
             medicine_name: Nome del medicinale
             dosage: Dosaggio (es. "10mg")
-            interval: Intervallo orario (formato "08-20")
+            start_time: Orario di inizio per l'assunzione (formato HH:MM)
+            end_time: Orario di fine per l'assunzione (formato HH:MM)
             frequency: Frequenza giornaliera (quante volte al giorno va preso)
 
         Returns:
@@ -73,10 +75,13 @@ class DTManager:
                     "name": f"Dispenser - {medicine_name}",
                     "medicine_name": medicine_name,
                     "dosage": dosage,
-                    "interval": interval,
+                    "medicine_time": {
+                        "start": start_time,
+                        "end": end_time
+                    },
                     "frequency_per_day": frequency,
                     "status": "active",
-                    "door_status": "closed",  # Aggiungi questo campo sempre
+                    "door_status": "closed",
                     "battery_level": 100,
                     "last_refill": datetime.now().isoformat(),
                     "location": "Casa",
@@ -85,7 +90,7 @@ class DTManager:
                 }
             }
 
-            # Crea la DR nel database - CORREZIONE: il metodo si chiama save_dr
+            # Crea la DR nel database
             dr_id = self.dt_factory.db_service.save_dr("dispenser_medicine", dispenser_data)
             return dr_id
         except Exception as e:

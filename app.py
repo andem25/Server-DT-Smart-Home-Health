@@ -38,7 +38,6 @@ from src.application.bot.routes.webhook_routes import webhook, init_routes
 from src.application.bot.handlers.medicine_handlers import (
     create_medicine_handler,
     list_my_medicines_handler,
-    set_interval_handler,
     show_regularity_handler,
     show_weekly_adherence_handler,
     set_medicine_time_handler,  # Aggiungi questa riga
@@ -80,7 +79,6 @@ def setup_handlers(application):
     # Dispenser handlers (rinominati da medicine)
     application.add_handler(CommandHandler("add_dispenser", create_medicine_handler))
     application.add_handler(CommandHandler("my_dispensers", list_my_medicines_handler))
-    application.add_handler(CommandHandler("set_dispenser_interval", set_interval_handler))
     application.add_handler(CommandHandler("set_dispenser_time", set_medicine_time_handler))
     application.add_handler(CommandHandler("dispenser_history", show_regularity_handler))
     application.add_handler(CommandHandler("dispenser_adherence", show_weekly_adherence_handler))

@@ -169,24 +169,30 @@ class MedicationReminderService(BaseService):
         # Accesso sicuro ai dati
         dispenser_data = dispenser.get("data", {})
         medicine_name = dispenser_data.get("medicine_name", "medicinale")
-        interval_str = dispenser_data.get("interval", "")
         status = dispenser_data.get("status", "")
         frequency = dispenser_data.get("frequency_per_day", 1)
         
         # Se il dispenser è vuoto o in errore, non inviare promemoria
         if status in ["empty", "error"]:
             return False
-            
-        # Verifica se l'orario attuale rientra nell'intervallo configurato
-        if not interval_str:
+        
+        # Verifica se esiste medicine_time invece dell'intervallo
+        medicine_time = dispenser_data.get("medicine_time", {})
+        start_time = medicine_time.get("start")
+        end_time = medicine_time.get("end")
+        
+        # Se non ci sono orari configurati, non inviare promemoria
+        if not start_time or not end_time:
             return False
-            
+        
         try:
-            start_hour, end_hour = map(int, interval_str.split("-"))
-            current_hour = datetime.now().hour
+            # Converti gli orari in oggetti datetime
+            today_str = now.strftime("%Y-%m-%d")
+            start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
+            end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
             
             # Se non siamo nell'intervallo orario, non inviare promemoria
-            if not (start_hour <= current_hour <= end_hour):
+            if not (start_dt <= now <= end_dt):
                 return False
                 
             # Verifica quante dosi sono già state prese oggi

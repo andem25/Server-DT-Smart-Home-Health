@@ -92,7 +92,7 @@ class IrregularityAlertService(BaseService):
                     minutes_open = (now - last_event_time).total_seconds() / 60
                     
                     if minutes_open > self.door_open_alert_time:
-                        alerts.append({
+                        alert = {
                             "type": "door_open_too_long",
                             "dispenser_id": dispenser.get("_id"),
                             "dispenser_name": dispenser_data.get("name", "dispenser"),
@@ -100,7 +100,43 @@ class IrregularityAlertService(BaseService):
                             "minutes_open": round(minutes_open),
                             "severity": "medium", 
                             "timestamp": now.isoformat()
-                        })
+                        }
+                        alerts.append(alert)
+                        
+                        # AGGIUNGI QUESTO BLOCCO: Invia la notifica attivamente
+                        try:
+                            # Importa qui per evitare dipendenze circolari
+                            from src.application.bot.notifications import send_door_irregularity_alert
+                            
+                            # Controlla se il dispenser ha già ricevuto una notifica recentemente
+                            dispenser_id = dispenser.get("_id")
+                            last_notification_key = f"door_notification_{dispenser_id}"
+                            last_notification_time = getattr(self, last_notification_key, None)
+                            
+                            # Invia solo se non è stata inviata una notifica negli ultimi 15 minuti
+                            if not last_notification_time or (now - last_notification_time).total_seconds() > 900:
+                                # Dettagli aggiuntivi per la notifica
+                                event_details = {
+                                    "reason": "open_too_long",
+                                    "minutes": round(minutes_open)
+                                }
+                                
+                                # Invia la notifica
+                                send_door_irregularity_alert(
+                                    self.db_service,
+                                    self.dt_factory,
+                                    dispenser_id,
+                                    "open",
+                                    now,
+                                    event_details
+                                )
+                                
+                                # Memorizza l'orario dell'ultima notifica
+                                setattr(self, last_notification_key, now)
+                                print(f"Inviata notifica per porta aperta troppo a lungo: {dispenser_data.get('name')} ({minutes_open:.1f} minuti)")
+                        except Exception as e:
+                            print(f"Errore nell'invio della notifica porta aperta: {e}")
+                        
                 except Exception as e:
                     print(f"Errore nel controllo porta {dispenser.get('_id')}: {e}")
 
