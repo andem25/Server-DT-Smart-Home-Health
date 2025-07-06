@@ -32,8 +32,11 @@ from config.settings import (
     # Assicurati che la variabile MQTT_TOPIC_ENVIRONMENTAL sia importata correttamente
     # e che le variabili MQTT_TOPIC_TEMP e MQTT_TOPIC_HUMIDITY siano rimosse o commentate
 )
+
+from src.application.bot.handlers.command_filter import restrict_patient_commands
+from src.application.bot.handlers.user_handler import create_patient_handler
 from src.application.bot.handlers.base_handlers import start_handler, help_handler, echo_handler
-from src.application.bot.handlers.user_handler import register_handler, login_handler, logout_handler, status_handler
+from src.application.bot.handlers.user_handler import register_handler, login_handler, logout_handler, status_handler, create_patient_handler
 from src.application.bot.routes.webhook_routes import webhook, init_routes
 from src.application.bot.handlers.medicine_handlers import (
     create_medicine_handler,
@@ -66,6 +69,8 @@ def create_app():
 
 def setup_handlers(application):
     """Setup all the bot command handlers"""
+    # Applica il decoratore restrict_patient_commands a tutti gli handler di comando
+    
     # Base handlers
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("help", help_handler))
@@ -75,6 +80,17 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("login", login_handler))
     application.add_handler(CommandHandler("logout", logout_handler))
     application.add_handler(CommandHandler("status", status_handler))
+    application.add_handler(CommandHandler("create_patient", create_patient_handler))
+    
+    # Applica il filtro a tutti i comandi per limitare l'accesso dei pazienti
+    # Usa un middleware per filtrare i comandi in base al ruolo dell'utente
+    from telegram.ext import MessageHandler, filters
+    application.add_handler(MessageHandler(
+        filters.COMMAND & ~filters.Command(["start", "help", "login", "logout", "status"]),
+        restrict_patient_commands(lambda update, context: update.message.reply_text(
+            "❌ Come paziente, non hai accesso a questo comando."
+        ))
+    ), group=0)  # Gruppo 0 per dare priorità a questo handler
     
     # Dispenser handlers (rinominati da medicine)
     application.add_handler(CommandHandler("add_dispenser", create_medicine_handler))

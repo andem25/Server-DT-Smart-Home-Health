@@ -10,18 +10,42 @@ class UserService:
         self.dr_factory = DRFactory(".\\src\\virtualization\\templates\\user.yaml")
 
     # --- MODIFIED METHOD ---
-    def create_user(self, username: str, password: str) -> str: # Rimosso telegram_id
-        """Crea un nuovo utente."""
+    def create_user(self, username: str, password: str, role: str = "supervisor", dt_id: str = None) -> str:
+        """
+        Crea un nuovo utente.
+        
+        Args:
+            username: Nome utente
+            password: Password in chiaro
+            role: Ruolo dell'utente (supervisor o patient)
+            dt_id: ID del Digital Twin associato (obbligatorio per i pazienti)
+        
+        Returns:
+            str: ID dell'utente creato
+        """
         existing = self.db_service.query_drs("user", {"data.username": username})
         if existing:
             raise ValueError("Username già esistente.")
+        
+        # Verifica che il ruolo sia valido
+        if role not in ["supervisor", "patient"]:
+            raise ValueError("Ruolo non valido. Deve essere 'supervisor' o 'patient'.")
+        
+        # Per i pazienti, il dt_id è obbligatorio
+        if role == "patient" and not dt_id:
+            raise ValueError("Per i pazienti è obbligatorio specificare un Digital Twin.")
 
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        
         user_data = {
             "username": username,
             "password_hash": password_hash,
-            # Non c'è più telegram_id da aggiungere
+            "role": role
         }
+        
+        # Aggiungi dt_id solo se specificato
+        if dt_id:
+            user_data["dt_id"] = dt_id
 
         user_dr = self.dr_factory.create_dr("user", {"data": user_data})
         saved_id = self.db_service.save_dr("user", user_dr)
@@ -57,3 +81,19 @@ class UserService:
             return None
         
         return user_list[0]
+
+    def verify_credentials(self, username: str, password: str) -> Optional[str]:
+        """
+        Verifica le credenziali dell'utente e restituisce l'ID se valide.
+        
+        Args:
+            username: Nome utente
+            password: Password in chiaro
+        
+        Returns:
+            str: ID dell'utente se le credenziali sono valide, altrimenti None
+        """
+        user = self.verify_user(username, password)
+        if user:
+            return user.get('_id')
+        return None

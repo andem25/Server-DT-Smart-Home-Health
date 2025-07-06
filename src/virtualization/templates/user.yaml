@@ -7,7 +7,8 @@ schemas:
     data:
       username: str
       password_hash: str
-      # telegram_id: int  # <-- RIMUOVI QUESTO CAMPO
+      role: str
+      dt_id: str
   validations:
     mandatory_fields:
       root:
@@ -21,9 +22,13 @@ schemas:
         type: str
         min_length: 3
         max_length: 50
-      # telegram_id: # <-- RIMUOVI QUESTO VINCOLO
-      #   type: int
+      role:
+        type: str
+        allowed_values: ["supervisor", "patient"]
+      dt_id:
+        type: str
     initialization:
       username: ""
       password_hash: ""
-      # telegram_id: 0 # <-- RIMUOVI QUESTA INIZIALIZZAZIONE
+      role: "supervisor"
+      dt_id: ""
