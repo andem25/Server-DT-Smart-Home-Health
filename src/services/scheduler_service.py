@@ -73,6 +73,9 @@ class SchedulerService:
                     # Esegui anche il controllo di aderenza per rilevare mancate assunzioni
                     self._execute_adherence_check_service(dt_instance, dt_name)
                     
+                    # Esegui anche il controllo delle porte
+                    self._execute_door_service(dt_instance, dt_name)
+                    
                     # Esegui anche altri servizi se necessario
                     if dt_instance.get_service("EmergencyRequestService"):
                         # Passa anche dt_factory al servizio
@@ -125,3 +128,24 @@ class SchedulerService:
                 
         except Exception as e:
             print(f"[Scheduler] Errore nel controllo di aderenza per {dt_name}: {e}")
+    
+    def _execute_door_service(self, dt_instance, dt_name):
+        """Esegue specificamente il servizio di controllo porte"""
+        try:
+            door_service = dt_instance.get_service("DoorEventService")
+            if door_service:
+                # Ottieni i dati aggiornati del DT
+                dt_data = dt_instance.get_dt_data()
+                
+                # Passa le dipendenze necessarie al servizio
+                door_service.db_service = self.db_service
+                door_service.dt_factory = self.dt_factory
+                
+                # Esegui il controllo delle porte
+                alerts = door_service.check_door_irregularities(dt_data)
+                
+                if alerts and len(alerts) > 0:
+                    print(f"[Scheduler] {dt_name}: Rilevate {len(alerts)} porte aperte da troppo tempo")
+                
+        except Exception as e:
+            print(f"[Scheduler] Errore nel controllo porte per {dt_name}: {e}")

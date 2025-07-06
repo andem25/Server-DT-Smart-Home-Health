@@ -11,6 +11,7 @@ class DoorEventService(BaseService):
         self.name = "DoorEventService"
         self.last_state = {}
         self.irregularity_events = {}
+        self.last_notifications = {}  # Aggiungi un dizionario per tenere traccia delle notifiche
         
     def configure(self, config):
         self.notification_threshold = config.get('notification_threshold', 30)  # secondi
@@ -217,6 +218,10 @@ class DoorEventService(BaseService):
                     "data.door_status": state,
                     "data.last_door_event": timestamp_iso,
                     "data.door_events": door_events
+                },
+                # Rimuovi il campo duplicato se esiste
+                "$unset": {
+                    "door_status": ""
                 }
             }
             db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
@@ -258,7 +263,11 @@ class DoorEventService(BaseService):
             dispenser_data = dispenser.get("data", {})
             door_status = dispenser_data.get("door_status")
             last_event_time_str = dispenser_data.get("last_door_event")
-
+            
+            # Aggiungi log per debug
+            root_door_status = dispenser.get("door_status", "non presente")
+            print(f"DEBUG - Dispenser {dispenser.get('_id')}: door_status in data = '{door_status}', door_status a livello root = '{root_door_status}'")
+            
             # Controlla solo se la porta è aperta e se abbiamo un timestamp valido
             if door_status == "open" and last_event_time_str:
                 try:
@@ -290,18 +299,27 @@ class DoorEventService(BaseService):
                             
                             # Controlla se il dispenser ha già ricevuto una notifica recentemente
                             dispenser_id = dispenser.get("_id")
-                            last_notification_key = f"door_notification_{dispenser_id}"
-                            last_notification_time = getattr(self, last_notification_key, None)
                             
-                            # Invia solo se non è stata inviata una notifica negli ultimi 15 minuti
-                            if not last_notification_time or (now - last_notification_time).total_seconds() > 900:
+                            # Usa il dizionario invece di attributi dinamici
+                            last_notification_time = self.last_notifications.get(dispenser_id)
+                            
+                            # Aggiungi log per debug
+                            print(f"DEBUG - Porta aperta: dispenser_id={dispenser_id}, minuti={minutes_open}, ultima_notifica={last_notification_time}")
+                            
+                            # Invia solo se non è stata inviata una notifica negli ultimi 1 minuti
+                            if not last_notification_time or (now - last_notification_time).total_seconds() > 60:
                                 # Dettagli aggiuntivi per la notifica
                                 event_details = {
                                     "reason": "open_too_long",
                                     "minutes": round(minutes_open)
                                 }
                                 
-                                if hasattr(self, 'db_service') and self.db_service and hasattr(self, 'dt_factory') and self.dt_factory:
+                                # Verifica esplicitamente i servizi
+                                has_db = hasattr(self, 'db_service') and self.db_service is not None
+                                has_dt = hasattr(self, 'dt_factory') and self.dt_factory is not None
+                                print(f"DEBUG - Servizi disponibili: db_service={has_db}, dt_factory={has_dt}")
+                                
+                                if has_db and has_dt:
                                     # Invia la notifica
                                     send_door_irregularity_alert(
                                         self.db_service,
@@ -312,11 +330,19 @@ class DoorEventService(BaseService):
                                         event_details
                                     )
                                     
-                                    # Memorizza l'orario dell'ultima notifica
-                                    setattr(self, last_notification_key, now)
+                                    # Memorizza l'orario dell'ultima notifica nel dizionario
+                                    self.last_notifications[dispenser_id] = now
                                     print(f"Inviata notifica per porta aperta troppo a lungo: {dispenser_data.get('name')} ({minutes_open:.1f} minuti)")
+                                else:
+                                    print(f"ERRORE: Impossibile inviare notifica - servizi non disponibili")
+                            else:
+                                # Aggiungi log quando non invia notifica
+                                seconds_since_last = (now - last_notification_time).total_seconds()
+                                print(f"Notifica non inviata: troppo recente ({seconds_since_last:.1f} secondi fa)")
                         except Exception as e:
                             print(f"Errore nell'invio della notifica porta aperta: {e}")
+                            import traceback
+                            traceback.print_exc()
                         
                 except Exception as e:
                     print(f"Errore nel controllo porta {dispenser.get('_id')}: {e}")

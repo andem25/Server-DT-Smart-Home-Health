@@ -69,11 +69,13 @@ async def create_medicine_handler(update: Update, context: ContextTypes.DEFAULT_
             
             # Aggiorna il valore del messaggio
             mqtt_message_value = payload
-            
-            # Importante: imposta l'evento SOLO se il messaggio è "1"
-            # Questo sblocca immediatamente l'attesa senza aspettare altri messaggi
-            if payload == "1":
-                mqtt_response_received.set()
+
+            # se il topic è quello di associazione
+            if msg.topic == f"{dispenser_id}/{MQTT_TOPIC_ASSOC}":
+                # Importante: imposta l'evento SOLO se il messaggio è "1"
+                # Questo sblocca immediatamente l'attesa senza aspettare altri messaggi
+                if payload == "1":
+                    mqtt_response_received.set()
                 print(f"MQTT: Confermata associazione per {dispenser_id}")
             else:
                 print(f"MQTT: Messaggio '{payload}' non valido per associazione, continuo ad attendere...")
