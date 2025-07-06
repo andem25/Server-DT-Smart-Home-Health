@@ -460,7 +460,6 @@ async def set_medicine_time_handler(update: Update, context: ContextTypes.DEFAUL
             f"✅ Orario di assunzione per '{dispenser_name}' impostato a:\n"
             f"- Inizio: {start_time}\n"
             f"- Fine: {end_time}\n\n"
-            f"Riceverai una notifica a metà dell'intervallo orario."
         )
         
     except Exception as e:

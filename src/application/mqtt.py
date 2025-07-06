@@ -92,9 +92,6 @@ class MqttSubscriber:
             print(f"MQTT Subscriber: Connesso al broker {self.broker_url}")
             
             # Sottoscrizioni principali usando QoS 2
-            client.subscribe(f"+/{MQTT_TOPIC_TAKEN}", qos=2)
-            print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_TAKEN} con QoS 2")
-            
             client.subscribe(f"+/{MQTT_TOPIC_DOOR}", qos=2)
             print(f"MQTT Subscriber: Sottoscritto ai topic */{MQTT_TOPIC_DOOR} con QoS 2")
             
