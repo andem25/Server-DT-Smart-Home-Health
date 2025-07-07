@@ -10,6 +10,8 @@ class MedicationReminderService(BaseService):
         self.active_reminders = {}
         self.time_based_reminders = {}  # Nuova struttura per i promemoria basati sull'orario
         self.last_notification_sent = {}  # Dizionario per tenere traccia dell'ultimo invio per dispenser
+        # Aggiungi questo dizionario per tenere traccia delle notifiche di dose mancata già inviate
+        self.missed_dose_notifications = {}  # {dispenser_id: {"YYYY-MM-DD": True}}
 
     def configure(self, config):
         """Configurazione del servizio"""
@@ -266,6 +268,7 @@ class MedicationReminderService(BaseService):
         today = now.strftime("%Y-%m-%d")
         
         for dispenser in dispensers:
+            dispenser_id = dispenser.get("_id")
             dispenser_name = dispenser.get("data", {}).get("name", "medicinale")
             regularity = dispenser.get("data", {}).get("regularity", [])
             
@@ -281,7 +284,7 @@ class MedicationReminderService(BaseService):
             if missing_days >= threshold:
                 alerts.append({
                     "type": "missed_medication",
-                    "dispenser_id": dispenser.get("_id"),
+                    "dispenser_id": dispenser_id,
                     "dispenser_name": dispenser_name,
                     "missing_days": missing_days,
                     "severity": "high" if missing_days >= 3 else "medium",
@@ -301,6 +304,16 @@ class MedicationReminderService(BaseService):
                         
                         # Se siamo DOPO la fine dell'intervallo di assunzione, verifichiamo se c'è stata un'assunzione
                         if now > end_dt:
+                            # Verificare se esiste già una notifica per questo dispenser e intervallo orario oggi
+                            # MODIFICA: Verifica nel database se è già stata inviata una notifica
+                            missed_notifications = dispenser.get("data", {}).get("missed_dose_notifications", [])
+                            notification_key = f"{today}_{start_time}_{end_time}"
+                            
+                            # Verifica se questa notifica è già stata inviata oggi
+                            if notification_key in missed_notifications:
+                                # Già inviata notifica per oggi, salta
+                                continue
+                            
                             # Verifica se c'è stata un'assunzione nell'intervallo
                             door_events = dispenser.get("data", {}).get("door_events", [])
                             today_events = [e for e in door_events if e.get("timestamp", "").startswith(today)]
@@ -325,7 +338,7 @@ class MedicationReminderService(BaseService):
                                 # Aggiungiamo l'alert
                                 alerts.append({
                                     "type": "today_missed_dose",
-                                    "dispenser_id": dispenser.get("_id"),
+                                    "dispenser_id": dispenser_id,
                                     "dispenser_name": dispenser_name,
                                     "scheduled_time": f"{start_time} - {end_time}",
                                     "severity": "high",
@@ -347,10 +360,21 @@ class MedicationReminderService(BaseService):
                                         send_adherence_notification(
                                             self.db_service,
                                             self.dt_factory,
-                                            dispenser.get("_id"),
+                                            dispenser_id,
                                             "missed_dose",
                                             details
                                         )
+                                        
+                                        # MODIFICA: Salva nel database che la notifica è stata inviata
+                                        # Aggiungi questa notifica all'elenco delle notifiche inviate per questo dispenser
+                                        update_operation = {
+                                            "$addToSet": {  # Usa $addToSet per evitare duplicati
+                                                "data.missed_dose_notifications": notification_key
+                                            }
+                                        }
+                                        self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
+                                        
+                                        print(f"Inviata notifica per dose mancata del dispenser {dispenser_name} ({start_time}-{end_time})")
                                 except Exception as e:
                                     print(f"Errore nell'invio della notifica per dose mancata: {e}")
                     
