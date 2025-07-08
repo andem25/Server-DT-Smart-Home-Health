@@ -282,7 +282,7 @@ class DoorEventService(BaseService):
                     
                     if minutes_open > threshold_minutes:
                         alert = {
-                            "type": "door_open_too_long",
+                            "type": "Porta aperta troppo a lungo!",
                             "dispenser_id": dispenser.get("_id"),
                             "dispenser_name": dispenser_data.get("name", "dispenser"),
                             "location": dispenser_data.get("location", "sconosciuta"),
