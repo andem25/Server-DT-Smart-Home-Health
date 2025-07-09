@@ -1,3 +1,5 @@
+#include <ESP8266HTTPClient.h>
+
 // --- Pin Definitions ---
 #define LIGHT_PIN A0                 // Analog input pin for ambient light sensor
 #define AUTH_BUTTON D0               // Digital pin for authorization button
@@ -12,6 +14,8 @@
 
 // --- Library Includes ---
 #include <ESP8266WiFi.h>                    // Core ESP8266 WiFi functions
+#include <ESP8266HTTPClient.h>              // Library to simplify HTTP requests (GET, POST, etc.) on ESP8266, supports both HTTP and HTTPS
+#include <ESP8266httpUpdate.h>              // Library for Over-The-Air (OTA) firmware updates via HTTP/HTTPS on ESP8266
 #include <ArduinoJson.h>                    // JSON parsing and serialization
 #include <MQTT.h>                           // MQTT client library
 #include <WiFiClientSecureBearSSL.h>        // Secure (TLS) WiFi client
@@ -60,9 +64,10 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
 )EOF";
 
+
 // --- Secure MQTT Setup ---
-BearSSL::WiFiClientSecure espClient;        // TLS-capable WiFi client
-X509List caCertList(root_ca);               // Load root CA into certificate list
+BearSSL::X509List certs(root_ca);
+BearSSL::WiFiClientSecure espClient;
 MQTTClient mqtt(256);                       // MQTT client with 256-byte buffer
 
 // --- NTP (Network Time Protocol) Client ---
@@ -73,7 +78,7 @@ NTPClient timeClient(ntpUDP,                // NTP client using UDP
                      60000);                // Update interval in milliseconds
 
 // --- WiFi and MQTT Credentials ---
-const char* ssid           = "ITALIAN-HOTSPOT(INTER)";
+const char* ssid           = "HOTSPOT";
 const char* password       = "pasta123";
 const char* mqtt_server    = "0467b214296349a08f4092ceb0acd55c.s1.eu.hivemq.cloud";
 const char* mqtt_username  = "12345";
@@ -134,7 +139,13 @@ const unsigned long blinkInterval = 300;     // Blink toggle interval (ms)
 unsigned long lastBlinkTime = 0;             // Timestamp of last blink toggle
 bool notificationState = false;              // Current output state for notification
 
-
+// --- Firmware URL for updaptes
+//String firmwareURL = "https://raw.githubusercontent.com/mpPistis12356/arduinotest/main/ver2.bin";
+String protocol = "https";
+String host = "raw.githubusercontent.com";
+String path = "/mpPistis12356/arduinotest/main/ver2.bin";
+uint16_t port = 443;
+bool update_status = false;
 
 void setup() {
   // ——————————————————————————————————————————————
@@ -171,21 +182,23 @@ void setup() {
   // ——————————————————————————————————————————————
   timeClient.begin();                        // Start NTP client
   int retry = 0;
-  while (!timeClient.update() && retry < 20) {
+  delay(200);
+  while (!timeClient.update() && retry < 50) {
     Serial.println("Waiting for NTP...");
     timeClient.forceUpdate();               // Try to force a sync
     delay(200);
     retry++;
   }
-  if (retry >= 20) {
+  if (retry >= 50) {
     Serial.println("NTP sync failed — TLS may not work");
   } else {
     Serial.println("NTP synchronized");
   }
 
   // Apply NTP time to TLS client for certificate validation
+  // Imposto la catena di certificati trusted
+  espClient.setTrustAnchors(&certs);
   espClient.setX509Time(timeClient.getEpochTime());
-  espClient.setTrustAnchors(&caCertList);
 
   // ——————————————————————————————————————————————
   // 5. MQTT Client Initialization
@@ -209,6 +222,19 @@ void setup() {
   }
 
   Serial.println(">> Setup complete");
+  // --- Reed Switch Handling (Door Sensor) with Debounce ---
+  int reading = digitalRead(REED_PIN);  // Read current reed switch state
+  lastReading = reading;
+  // Prepare door state message
+  DynamicJsonDocument doc(256);
+  doc["door"] = reading;
+  doc["time"] = formattedTime;
+  serializeJson(doc, mqtt_message);
+  buildTopic("/door");
+
+  if (mqtt.connected()) {
+    publishMessage(topic, mqtt_message, false);
+  } 
 }
 
 // Forward declaration
@@ -373,6 +399,41 @@ void loop() {
 
   // --- LCD Display Update ---
   handleLCD(displayLine1, displayLine2);  // Refresh display with latest messages
+  if (update_status) {  // Check if an OTA update has been requested
+    update_status = false;  // Reset the update flag to prevent multiple updates
+
+    espClient.setInsecure();  // Disable TLS certificate validation (not secure, for testing only)
+
+    Serial.println("Starting OTA...");  // Log message to indicate OTA process is starting
+
+    // 1) Sync time for TLS
+    timeClient.update();  // Fetch current time from NTP server
+    espClient.setX509Time(timeClient.getEpochTime());  // Set TLS client's internal clock (required for certificate validation)
+
+    // 2) Start the OTA process
+    ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // Automatically follow HTTP redirects (useful for GitHub URLs)
+
+    // Launch the OTA update: provide HTTPS client, host, port, and path to firmware
+    t_httpUpdate_return ret = ESPhttpUpdate.update(espClient, host.c_str(), port, path.c_str());
+
+    // Handle OTA result
+    switch (ret) {
+      case HTTP_UPDATE_FAILED:
+        // OTA failed: print the error code and message
+        Serial.printf("OTA failed (%d): %s\n",
+                      ESPhttpUpdate.getLastError(),
+                      ESPhttpUpdate.getLastErrorString().c_str());
+        break;
+      case HTTP_UPDATE_NO_UPDATES:
+        // No update available on the server
+        Serial.println("No updates available.");
+        break;
+      case HTTP_UPDATE_OK:
+        // OTA successful: the device will reboot automatically
+        Serial.println("OTA OK — device will reboot");
+        break;
+    }
+  }
 }
 
 
@@ -489,7 +550,11 @@ void callback(String &topic, String &payload) {
   else if (topic == dev + "/message") {
     // Display arbitrary text on the second LCD line
     displayLine2 = purify(payload);
-  }
+  }else if (topic == dev + "/update" ) {
+    if (payload == "1") {              // If the message payload is "1"
+      update_status = true;           // Set the flag to trigger OTA update on the next cycle
+    }
+}
 }
 
 
