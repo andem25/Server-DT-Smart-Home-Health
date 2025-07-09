@@ -202,12 +202,6 @@ class EnvironmentalMonitoringService(BaseService):
         print(f"Successfully updated device {device_id} with data: {measurements_to_push}")
 
 
-
-
-
-
-
-
     def set_environmental_limits(self, device_id: str, 
                                limit_type: str, 
                                min_value: float, 
