@@ -13,13 +13,6 @@ class MedicationReminderService(BaseService):
         # Aggiungi questo dizionario per tenere traccia delle notifiche di dose mancata già inviate
         self.missed_dose_notifications = {}  # {dispenser_id: {"YYYY-MM-DD": True}}
 
-    # def configure(self, config):
-    #     """Configurazione del servizio"""
-    #     self.reminder_interval = config.get("reminder_interval", 300)  # 5 minuti di default
-    #     self.notification_channels = config.get("channels", ["telegram"])
-    #     # Intervallo minimo tra notifiche consecutive (in secondi)
-    #     self.min_notification_interval = config.get("min_notification_interval", 900)  # 15 minuti default
-    #     return self
         
     def execute(self, dt_data, **kwargs):
         """Esegue il controllo delle assunzioni pianificate e invia promemoria se necessario"""
