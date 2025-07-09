@@ -154,6 +154,13 @@ class EnvironmentalMonitoringService(BaseService):
         Gestisce i dati ambientali ricevuti da MQTT, li salva, controlla i limiti
         e invia notifiche in caso di allarme.
         """
+        # --- INIZIO DELLA CORREZIONE ---
+        # Assegna i servizi passati come parametri alle proprietà dell'istanza.
+        # Questa è la riga mancante che risolve il problema.
+        self.db_service = db_service
+        self.dt_factory = dt_factory
+        # --- FINE DELLA CORREZIONE ---
+
         print(f"Received environmental data for device {device_id}: {env_data}")
 
         # Lista per contenere le nuove misurazioni formattate
@@ -203,6 +210,7 @@ class EnvironmentalMonitoringService(BaseService):
         print(f"Successfully updated device {device_id} with data: {measurements_to_push}")
 
         # 4. Controlla i limiti e invia le notifiche
+        # Ora questa chiamata userà il self.db_service appena impostato e troverà i limiti corretti
         limits = self.get_environmental_limits(device_id)
         for measure_type, value in data_to_check.items():
             min_value, max_value = limits[measure_type]

@@ -7,7 +7,7 @@ import io
 import numpy as np
 import matplotlib.dates as mdates
 import re
-
+from telegram.ext import ConversationHandler
 async def show_environmental_data_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Mostra i dati ambientali (temperatura e umidità) di un dispenser
@@ -276,188 +276,88 @@ async def show_environmental_data_handler(update: Update, context: ContextTypes.
         traceback.print_exc()
         await update.message.reply_text(f"❌ Si è verificato un errore durante il recupero dei dati ambientali: {e}")
 
-async def set_environmental_limits_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def set_environmental_limits_handler(update, context):
     """
-    Imposta limiti personalizzati per temperatura e umidità di un dispenser.
-    
-    Uso:
-        /set_env_limits <dispenser_id> temp <min> <max> - Imposta limiti di temperatura
-        /set_env_limits <dispenser_id> humidity <min> <max> - Imposta limiti di umidità
+    Imposta i limiti di temperatura o umidità per un dispenser specifico.
     """
-    user_db_id = context.user_data.get('user_db_id')
-    if not user_db_id:
-        await update.message.reply_text("❌ Devi prima effettuare il login con /login <username> <password>.")
-        return
-        
-    # Verifica che siano forniti tutti i parametri necessari
-    if len(context.args) < 4:
-        await update.message.reply_text(
-            "❗ Uso: \n"
-            "- `/set_env_limits <dispenser_id> temp <min> <max>` - per impostare limiti di temperatura\n"
-            "- `/set_env_limits <dispenser_id> humidity <min> <max>` - per impostare limiti di umidità\n\n"
-            "Esempi:\n"
-            "- `/set_env_limits disp123 temp 18 30` - imposta temperatura tra 18°C e 30°C\n"
-            "- `/set_env_limits disp123 humidity 30 70` - imposta umidità tra 30% e 70%",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-        
-    dispenser_id = context.args[0]
-    limit_type = context.args[1].lower()
-    
-    # Verifica che il tipo sia valido
-    if limit_type not in ["temp", "temperatura", "temperature", "humidity", "umidità", "umidita"]:
-        await update.message.reply_text(
-            "❌ Tipo di limite non valido. Usa 'temp' per temperatura o 'humidity' per umidità."
-        )
-        return
-        
-    # Normalizza i tipi
-    if limit_type in ["temperatura", "temperature"]:
-        limit_type = "temp"
-    elif limit_type in ["umidità", "umidita"]:
-        limit_type = "humidity"
-        
-    # Controlla i valori min e max
     try:
-        min_value = float(context.args[2])
-        max_value = float(context.args[3])
-        
+        # Estrai gli argomenti dal comando: /set_env_limits <dispenser_id> <temp|humidity> <min> <max>
+        args = context.args
+        if len(args) != 4:
+            await update.message.reply_text(
+                "⚠️ Formato non corretto.\n"
+                "Usa: /set_env_limits <dispenser_id> <temp|humidity> <min> <max>"
+            )
+            return ConversationHandler.END
+
+        dispenser_id = args[0]
+        limit_type = args[1].lower()
+        min_value = float(args[2])
+        max_value = float(args[3])
+
+        if limit_type not in ["temp", "humidity"]:
+            await update.message.reply_text("Tipo di limite non valido. Usa 'temp' o 'humidity'.")
+            return ConversationHandler.END
+
         if min_value >= max_value:
-            await update.message.reply_text("❌ Il valore minimo deve essere inferiore al valore massimo.")
-            return
-            
-        # Controlli specifici per temperatura e umidità
-        if limit_type == "temp":
-            if min_value < -10 or min_value > 40:
-                await update.message.reply_text("⚠️ Il valore minimo di temperatura dovrebbe essere tra -10°C e 40°C.")
-                return
-            if max_value < 0 or max_value > 50:
-                await update.message.reply_text("⚠️ Il valore massimo di temperatura dovrebbe essere tra 0°C e 50°C.")
-                return
-                
-        elif limit_type == "humidity":
-            if min_value < 0 or min_value > 100:
-                await update.message.reply_text("⚠️ Il valore minimo di umidità deve essere tra 0% e 100%.")
-                return
-            if max_value < 0 or max_value > 100:
-                await update.message.reply_text("⚠️ Il valore massimo di umidità deve essere tra 0% e 100%.")
-                return
-                
-    except ValueError:
-        await update.message.reply_text("❌ I valori minimo e massimo devono essere numeri.")
-        return
-        
-    try:
-        # Ottieni i servizi necessari
+            await update.message.reply_text("Il valore minimo deve essere inferiore al valore massimo.")
+            return ConversationHandler.END
+
         db_service = context.application.bot_data.get('db_service')
         if not db_service:
-            await update.message.reply_text("❌ Errore interno: Servizi non disponibili.")
-            return
-            
-        # Ottieni il dispenser
-        dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
-        if not dispenser:
-            await update.message.reply_text(f"❌ Dispenser con ID `{dispenser_id}` non trovato.")
-            return
-            
-        if dispenser.get("user_db_id") != user_db_id:
-            await update.message.reply_text("❌ Non sei autorizzato a modificare questo dispenser.")
-            return
-            
-        # Prepara l'aggiornamento
-        update_field = None
-        limit_name = None
-        
-        if limit_type == "temp":
-            update_field = "temperature_limits"
-            limit_name = "temperatura"
-        else:  # humidity
-            update_field = "humidity_limits"
-            limit_name = "umidità"
-            
-        # Aggiorna il dispenser
+            await update.message.reply_text("Errore interno: servizio database non disponibile.")
+            return ConversationHandler.END
+
+        # Determina il campo da aggiornare e il nome per il messaggio
+        update_field = "temperature_limits" if limit_type == "temp" else "humidity_limits"
+        limit_name = "temperatura" if limit_type == "temp" else "umidità"
+
+        # --- INIZIO DELLA CORREZIONE CRUCIALE ---
+        # Costruisci l'operazione di aggiornamento per MongoDB usando la "dot notation".
+        # Questo aggiorna solo i campi specificati all'interno dell'oggetto 'data'.
         update_operation = {
             "$set": {
                 f"data.{update_field}": [min_value, max_value],
                 "metadata.updated_at": datetime.now().isoformat()
             }
         }
-        
+        # --- FINE DELLA CORREZIONE CRUCIALE ---
+
+        # Esegui l'aggiornamento sul database
         db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
-        
-        # Aggiorna anche eventuali Digital Twin associati
+
+        # Aggiorna anche le istanze dei Digital Twin attualmente in esecuzione in memoria
         try:
             dt_factory = context.application.bot_data.get('dt_factory')
             if dt_factory:
-                # Trova tutti i DT collegati a questo dispenser
+                # La funzione _find_dts_with_dr deve essere definita nel tuo file handlers
                 dts_with_dispenser = _find_dts_with_dr(dt_factory, "dispenser_medicine", dispenser_id)
-                
                 for dt_id in dts_with_dispenser:
                     dt_instance = dt_factory.get_dt_instance(dt_id)
                     if dt_instance:
                         env_service = dt_instance.get_service("EnvironmentalMonitoringService")
                         if env_service:
-                            # Aggiorna la configurazione del servizio
                             if limit_type == "temp":
                                 env_service.temperature_range = [min_value, max_value]
                             else:
                                 env_service.humidity_range = [min_value, max_value]
+                            print(f"Servizio ambientale del DT {dt_id} aggiornato in memoria.")
         except Exception as e:
-            print(f"Errore nell'aggiornamento dei servizi DT: {e}")
-            # Non interrompiamo il flusso principale se questo fallisce
-            
-        # Ottieni il nome del dispenser
-        dispenser_name = dispenser.get("data", {}).get("name", dispenser_id)
-        
-        # Rispondi all'utente
-        unit = "°C" if limit_type == "temp" else "%"
+            print(f"ATTENZIONE: Errore nell'aggiornamento dei servizi DT in memoria: {e}")
+            # Non bloccare l'operazione se questo passaggio fallisce
+
         await update.message.reply_text(
-            f"✅ Limiti di {limit_name} per '{dispenser_name}' impostati a:\n"
-            f"- Minimo: {min_value}{unit}\n"
-            f"- Massimo: {max_value}{unit}\n\n"
-            f"I nuovi limiti verranno utilizzati per le notifiche di allarme."
+            f"✅ Limiti di {limit_name} per il dispenser '{dispenser_id}' aggiornati con successo:\n"
+            f"Min: {min_value}\n"
+            f"Max: {max_value}"
         )
-        
+
+    except (IndexError, ValueError):
+        await update.message.reply_text(
+            "⚠️ Errore nei parametri.\n"
+            "Usa: /set_env_limits <dispenser_id> <temp|humidity> <min> <max>"
+        )
     except Exception as e:
-        print(f"Errore in set_environmental_limits_handler: {e}")
-        import traceback
-        traceback.print_exc()
-        await update.message.reply_text(f"❌ Si è verificato un errore durante l'aggiornamento dei limiti: {e}")
-        
-# Funzione di utilità per trovare i DT con una specifica DR
-def _find_dts_with_dr(dt_factory, dr_type, dr_id):
-    """
-    Trova tutti i Digital Twin che contengono una specifica Digital Replica
-    
-    Args:
-        dt_factory: Istanza di DTFactory
-        dr_type (str): Tipo della Digital Replica
-        dr_id (str): ID della Digital Replica
-        
-    Returns:
-        list: Lista di ID dei Digital Twin contenenti la DR
-    """
-    matching_dts = []
-    
-    try:
-        # Assumiamo che db_service sia disponibile nel dt_factory
-        dt_collection = dt_factory.db_service.db["digital_twins"]
-        
-        # Cerca tutti i DT che contengono questa DR
-        cursor = dt_collection.find({
-            "digital_replicas": {
-                "$elemMatch": {
-                    "type": dr_type,
-                    "id": dr_id
-                }
-            }
-        })
-        
-        for dt in cursor:
-            matching_dts.append(str(dt["_id"]))
-            
-    except Exception as e:
-        print(f"Errore nella ricerca di DTs con DR: {e}")
-        
-    return matching_dts
+        await update.message.reply_text(f"Si è verificato un errore imprevisto: {e}")
+
+    return ConversationHandler.END
