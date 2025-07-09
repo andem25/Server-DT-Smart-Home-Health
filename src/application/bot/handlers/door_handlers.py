@@ -127,7 +127,7 @@ async def show_door_events_handler(update: Update, context: ContextTypes.DEFAULT
     closed_count = sum(1 for e in door_events if e.get("state") == "closed")
     
     # Conteggio eventi regolari e irregolari
-    regular_count = sum(1 for e in door_events if e.get("regularity") == "regular")
+    regular_count = sum(1 for e in door_events if e.get("is_regular") == "regular")
     irregular_count = len(door_events) - regular_count
     
     msg += f"📊 *Statistiche:*\n"
