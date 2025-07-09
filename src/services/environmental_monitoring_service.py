@@ -151,42 +151,47 @@ class EnvironmentalMonitoringService(BaseService):
 
     def handle_environmental_data(self, db_service, dt_factory, device_id, env_data):
         """
-        Gestisce i dati ambientali ricevuti da MQTT, estraendo temperatura e umidità.
+        Gestisce i dati ambientali ricevuti da MQTT, li salva, controlla i limiti
+        e invia notifiche in caso di allarme.
         """
         print(f"Received environmental data for device {device_id}: {env_data}")
 
         # Lista per contenere le nuove misurazioni formattate
         measurements_to_push = []
-        # Usiamo un timestamp unico per questo "pacchetto" di dati
         timestamp = datetime.now().isoformat()
+
+        # Dizionario per i dati da controllare
+        data_to_check = {}
 
         # 1. Estrai e formatta la misurazione della temperatura
         if "avg_temperature" in env_data:
+            temp_value = env_data["avg_temperature"]
             temp_measurement = {
                 "type": "temperature",
-                "value": env_data["avg_temperature"],
+                "value": temp_value,
                 "unit": "°C",
                 "timestamp": timestamp
             }
             measurements_to_push.append(temp_measurement)
+            data_to_check["temperature"] = temp_value
 
         # 2. Estrai e formatta la misurazione dell'umidità
         if "avg_humidity" in env_data:
+            humidity_value = env_data["avg_humidity"]
             humidity_measurement = {
                 "type": "humidity",
-                "value": env_data["avg_humidity"],
+                "value": humidity_value,
                 "unit": "%",
                 "timestamp": timestamp
             }
             measurements_to_push.append(humidity_measurement)
+            data_to_check["humidity"] = humidity_value
 
-        # Se non abbiamo estratto dati validi, interrompiamo l'esecuzione
         if not measurements_to_push:
             print(f"Warning: No valid measurements found in data from device {device_id}: {env_data}")
             return
 
-        # 3. Prepara l'operazione di aggiornamento per il database
-        # Usiamo $each per aggiungere tutti gli elementi della lista in una sola operazione
+        # 3. Aggiorna il documento del dispenser nel database
         update_operation = {
             "$push": {
                 "data.environmental_data": {
@@ -194,12 +199,28 @@ class EnvironmentalMonitoringService(BaseService):
                 }
             }
         }
-
-        # 4. Aggiorna il documento del dispenser nel database
         db_service.update_dr("dispenser_medicine", device_id, update_operation)
         print(f"Successfully updated device {device_id} with data: {measurements_to_push}")
 
+        # 4. Controlla i limiti e invia le notifiche
+        limits = self.get_environmental_limits(device_id)
+        for measure_type, value in data_to_check.items():
+            min_value, max_value = limits[measure_type]
+            unit = "°C" if measure_type == "temperature" else "%"
 
+            if value < min_value or value > max_value:
+                print(f"ALERT: {measure_type} for device {device_id} is out of range! Value: {value}")
+                # Invia la notifica
+                send_environmental_alert(
+                    db_service=db_service,
+                    dt_factory=dt_factory,
+                    device_id=device_id,
+                    measure_type=measure_type,
+                    value=value,
+                    unit=unit,
+                    min_value=min_value,
+                    max_value=max_value
+                )
     def set_environmental_limits(self, device_id: str, 
                                limit_type: str, 
                                min_value: float, 

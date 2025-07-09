@@ -187,50 +187,38 @@ def send_generic_emergency_alert(db_service, device_id):
         return 0
 
 def send_environmental_alert(db_service, dt_factory, device_id, measure_type, value, unit, min_value, max_value):
-    """Invia una notifica di allarme ambientale all'utente"""
+    """Invia una notifica di allarme ambientale all'utente."""
     try:
-        # DEBUG: Stampa i parametri ricevuti
         print(f"DEBUG - send_environmental_alert - Parametri: device_id={device_id}, measure={measure_type}, value={value}")
-        
-        # Ottieni il dispenser dal database
+
         dispenser = db_service.get_dr("dispenser_medicine", device_id)
         if not dispenser:
             print(f"ERRORE: Dispenser {device_id} non trovato nel database")
             return 0
-            
+
         dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
-        
-        # IMPORTANTE: Usa lo stesso metodo di ricerca usato in MqttSubscriber
-        # che sappiamo funzionare correttamente
+
+        # Trova i DT a cui il dispenser è associato
         dts_with_dispenser = []
         if dt_factory:
-            # Ottieni tutti i Digital Twin dal database
             all_dts = db_service.query_drs("digital_twins", {})
-            
             for dt in all_dts:
                 dt_id = str(dt.get("_id"))
                 dt_instance = dt_factory.get_dt_instance(dt_id)
-                
                 if dt_instance and dt_instance.contains_dr("dispenser_medicine", device_id):
                     dts_with_dispenser.append(dt_id)
-                    
-        # DEBUG: Stampa i DT trovati
+
         print(f"DEBUG - send_environmental_alert - DT trovati per {device_id}: {dts_with_dispenser}")
-        
-        dt_name = "Casa"  # Default
-        
+
+        dt_name = "Casa"
         if dts_with_dispenser:
-            dt_id = dts_with_dispenser[0]  # Prendiamo il primo DT associato
+            dt_id = dts_with_dispenser[0]
             dt = dt_factory.get_dt(dt_id)
             if dt:
                 dt_name = dt.get("name", "Casa")
-        
+
         # Costruisci il messaggio di allarme
-        if value < min_value:
-            status = "basso"
-        else:
-            status = "alto"
-            
+        status = "basso" if value < min_value else "alto"
         message = (
             f"⚠️ *ALLARME AMBIENTALE*\n\n"
             f"🌡️ Rilevato valore di {measure_type} {status}!\n"
@@ -240,83 +228,58 @@ def send_environmental_alert(db_service, dt_factory, device_id, measure_type, va
             f"🏠 Posizione: {dt_name}\n\n"
             f"👉 Si consiglia di verificare le condizioni ambientali."
         )
-        
+
         # Invia la notifica a tutti gli utenti attivi del DT
         if dts_with_dispenser:
             dt_id = dts_with_dispenser[0]
             return send_notification_to_dt_users(dt_factory, dt_id, message)
         else:
-            # Se non trova DT, recupera gli ID Telegram direttamente 
-            # dall'utente associato al dispenser
+            # Fallback: se non c'è un DT, invia la notifica al proprietario del dispenser
             user_db_id = dispenser.get("user_db_id")
             if not user_db_id:
                 print(f"ERRORE: ID utente non trovato per il dispenser {device_id}")
                 return 0
-                
-            # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
+
             dt_collection = db_service.db["digital_twins"]
             query = {"metadata.user_id": user_db_id}
             user_dt_docs = list(dt_collection.find(query))
-            
-            # DEBUG
-            print(f"DEBUG - DT associati all'utente {user_db_id}: {len(user_dt_docs)}")
-            
-            # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
+
             all_telegram_ids = set()
             for dt_doc in user_dt_docs:
                 metadata = dt_doc.get("metadata", {})
                 active_ids = metadata.get("active_telegram_ids", [])
-                print(f"DEBUG: ID Telegram trovati in DT {dt_doc.get('_id')}: {active_ids}")
-            
                 for id_val in active_ids:
-                    try:
-                        if id_val:  # Verifica che non sia None o vuoto
-                            all_telegram_ids.add(int(id_val))
-                    except (ValueError, TypeError):
-                        print(f"AVVISO: Impossibile convertire ID Telegram '{id_val}' a intero")
-        
-        print(f"DEBUG: Tutti gli ID Telegram raccolti: {all_telegram_ids}")
-        
-        # Se non ci sono ID, usa l'ID di fallback
-        if not all_telegram_ids:
-            all_telegram_ids = {157933243}
-            print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
-            
-            # DEBUG
-            print(f"DEBUG - ID Telegram trovati: {all_telegram_ids}")
-            
-            # Invia il messaggio ambientale specifico a tutti gli ID
+                    if id_val:
+                        all_telegram_ids.add(int(id_val))
+
+            if not all_telegram_ids:
+                all_telegram_ids = {157933243} # Fallback ID
+
             from os import environ
             token = environ.get('TELEGRAM_TOKEN')
-            
             if not token:
                 print("ERRORE: Token Telegram non trovato")
                 return 0
-            
+
             import requests
             successful_sends = 0
             for telegram_id in all_telegram_ids:
                 url = f"https://api.telegram.org/bot{token}/sendMessage"
-                data = {
-                    "chat_id": telegram_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                
+                data = {"chat_id": telegram_id, "text": message, "parse_mode": "Markdown"}
                 response = requests.post(url, json=data)
                 if response.status_code == 200:
                     print(f"Notifica ambientale inviata all'ID Telegram: {telegram_id}")
                     successful_sends += 1
                 else:
                     print(f"Errore nell'invio notifica: {response.status_code}")
-                    
             return successful_sends
-            
+
     except Exception as e:
         print(f"Errore nell'invio dell'allarme ambientale: {e}")
         import traceback
         traceback.print_exc()
         return 0
+
 
 def send_door_irregularity_alert(db_service, dt_factory, device_id, state, timestamp, event_details):
     """Invia una notifica all'utente quando si verifica un'apertura/chiusura porta irregolare"""
