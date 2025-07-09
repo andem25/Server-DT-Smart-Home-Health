@@ -62,9 +62,8 @@ class DigitalTwin:
         Returns:
             bool: True se la Digital Replica è contenuta nel Digital Twin, False altrimenti
         """
-        dt_data = self._dt_data
-        for dr in dt_data.get("digital_replicas", []):
-            if dr.get("type") == dr_type and dr.get("id") == dr_id:
+        for dr in self.digital_replicas:
+            if dr.get("type") == dr_type and dr.get("_id") == dr_id:
                 return True
         return False
 

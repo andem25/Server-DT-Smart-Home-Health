@@ -25,9 +25,6 @@ class DoorEventService(BaseService):
         # Se abbiamo un'istanza DT, deleghiamo
         if 'dt_instance' in kwargs:
             return kwargs['dt_instance'].execute_door_monitoring(threshold_minutes)
-        
-        # Altrimenti fallback al vecchio comportamento
-        return self._legacy_execute(dt_data, threshold_minutes)
     
     # Metodi dell'interfaccia DoorServiceInterface
     def check_door_alerts(self, dispenser_data, threshold_minutes=1):
