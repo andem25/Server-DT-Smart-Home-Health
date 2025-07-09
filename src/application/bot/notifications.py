@@ -545,15 +545,13 @@ def send_door_open_alert(db_service, dt_factory, device_id, minutes_open):
     """
     Invia una notifica a tutti gli utenti associati quando la porta di un dispenser
     rimane aperta per troppo tempo.
-    Gestisce sia un singolo chat_id (stringa) sia una lista di chat_id.
     """
     try:
         logging.info(f"Avvio allerta porta aperta per il dispositivo {device_id} (aperta da {minutes_open} min).")
         dt_collection = db_service.db["digital_twins"]
 
         # 1. Trova il Digital Twin che contiene la replica del dispositivo specificato.
-        #    La query è stata corretta per usare '_id' all'interno di 'digital_replicas'.
-        query = {"digital_replicas": {"$elemMatch": {"_id": device_id, "type": "dispenser_medicine"}}}
+        query = {"digital_replicas": {"$elemMatch": {"id": device_id, "type": "dispenser_medicine"}}}
         dt_doc = dt_collection.find_one(query)
 
         if not dt_doc:
@@ -563,66 +561,11 @@ def send_door_open_alert(db_service, dt_factory, device_id, minutes_open):
         dt_id = str(dt_doc["_id"])
         logging.info(f"Trovato Digital Twin con ID {dt_id} per il dispositivo {device_id}.")
 
-        # 2. Crea l'oggetto Digital Twin per accedere ai suoi metodi e dati.
-        dt = dt_factory.create_dt_from_id(dt_id)
-        
-        # 3. Ottieni l'attributo telegram_chat_id, che può essere una stringa o una lista.
-        chat_ids_raw = dt.get_chat_id()
-
-        if not chat_ids_raw:
-            logging.error(f"Il Digital Twin {dt_id} non ha un 'telegram_chat_id' associato.")
-            return
-
-        # 4. Normalizza i chat_id in una lista per poterli iterare sempre.
-        #    Se è già una lista, la usiamo. Se è una stringa, creiamo una lista con quel singolo elemento.
-        if isinstance(chat_ids_raw, list):
-            chat_ids = chat_ids_raw
-        else:
-            chat_ids = [chat_ids_raw]
-            
-        logging.info(f"Invio notifiche ai seguenti chat_id: {chat_ids}")
-
-        # 5. Prepara e invia il messaggio a ogni chat_id nella lista.
+        # 2. Prepara il messaggio
         message = f"⚠️ Allarme! La porta del dispenser è aperta da {minutes_open} minuti."
         
-        from os import environ
-        token = environ.get('TELEGRAM_TOKEN')
-        
-        if not token:
-            print("ERRORE: Token Telegram non trovato")
-            return 0
-        
-        
-        
-        success_count = 0
-        import requests
-        for chat_id in chat_ids:
-            try:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                data = {
-                    "chat_id": chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                response = requests.post(url, json=data)
-                if response.status_code == 200:
-                    logging.info(f"Notifica di aderenza inviata all'ID Telegram: {chat_id}")
-                    successful_sends += 1
-                else:
-                    logging.error(f"Errore nell'invio notifica: {response.status_code}")
-                    logging.info(f"Messaggio inviato con successo a chat_id: {chat_id}")
-                    success_count += 1
-            except Exception as e:
-                logging.error(f"Errore durante l'invio del messaggio a chat_id {chat_id}: {e}")
-
-        logging.info(f"Operazione completata. Notifiche inviate: {success_count}/{len(chat_ids)}.")
+        # 3. Invia la notifica usando la funzione esistente
+        send_notification_to_dt_users(dt_factory, dt_id, message)
 
     except Exception as e:
         logging.critical(f"Errore critico non gestito in send_door_open_alert: {e}", exc_info=True)
-
-
-    except Exception as e:
-        print(f"Errore nell'invio dell'allarme porta aperta: {e}")
-        import traceback
-        traceback.print_exc()
-        return 0

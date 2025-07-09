@@ -118,15 +118,21 @@ class SchedulerService:
         except Exception as e:
             print(f"[Scheduler] Errore nel controllo di aderenza per {dt_name}: {e}")
     
+    # All'interno della classe SchedulerService
     def _execute_door_service(self, dt_instance, dt_name):
-        """Esegue specificamente il servizio di controllo porte"""
+        """Esegue specificamente il servizio di controllo porte."""
         try:
+            # Verifica che il servizio esista nel DT
             door_service = dt_instance.get_service("DoorEventService")
             if door_service:
-                # Invece di chiamare direttamente il servizio, usiamo il metodo del DT
-                # che gestisce correttamente l'invio delle notifiche
-                result = dt_instance.execute_door_monitoring()
+                # Passa le dipendenze necessarie (db_service, dt_factory) 
+                # al metodo del DT che orchestra il monitoraggio.
+                result = dt_instance.execute_door_monitoring(
+                    db_service=self.db_service, 
+                    dt_factory=self.dt_factory
+                )
                 
+                # Logga l'esito dell'operazione
                 if result and len(result.get("door_alerts", [])) > 0:
                     print(f"[Scheduler] {dt_name}: Gestite {len(result['door_alerts'])} notifiche di porta aperta")
                 

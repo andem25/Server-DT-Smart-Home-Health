@@ -194,43 +194,63 @@ class DigitalTwin:
         # Il DT gestisce direttamente l'invio della notifica
         self.send_notification(device_id, message, "environmental")
 
-    def execute_door_monitoring(self, threshold_minutes=1):
-        """Esegue il monitoraggio delle porte orchestrando il servizio"""
-
-        # Ottieni il servizio
+    def execute_door_monitoring(self, threshold_minutes=1, db_service=None, dt_factory=None):
+        """
+        Esegue il monitoraggio delle porte aperte orchestrando il servizio di dominio.
+        
+        Args:
+            threshold_minutes (int): Soglia in minuti per generare un allarme.
+            db_service: Istanza del servizio di database (dipendenza iniettata).
+            dt_factory: Istanza della factory dei Digital Twin (dipendenza iniettata).
+        """
+        # Ottieni il servizio specifico per la logica di dominio
         door_service = self.get_service("DoorEventService")
         if not door_service:
-            return {"error": "Servizio non disponibile"}
-
+            return {"error": "Servizio DoorEventService non disponibile in questo DT."}
+    
         results = {
             "door_alerts": []
         }
-
-        # Per ogni dispenser nel DT
-        for dispenser in self.get_replicas_by_type("dispenser_medicine"):
-            # Il DT fornisce i dati al servizio
-            alerts = door_service.check_door_alerts(dispenser, threshold_minutes)
-
-            # Aggiungi eventuali alert rilevati
+    
+        # Itera su tutte le repliche di tipo "dispenser"
+        for dispenser_replica in self.get_replicas_by_type("dispenser_medicine"):
+            # Il DT fornisce i dati della replica al servizio per l'analisi
+            alerts = door_service.check_door_alerts(dispenser_replica, threshold_minutes)
+    
             if alerts:
                 for alert in alerts:
                     results["door_alerts"].append(alert)
-                    # Il DT gestisce direttamente la notifica
-                    self._handle_door_alert(alert)
-
+                    # Se viene rilevato un alert, il DT orchestra la gestione
+                    # passando le dipendenze necessarie per la notifica.
+                    self._handle_door_alert(alert, db_service=db_service, dt_factory=dt_factory)
+    
         return results
-
-    def _handle_door_alert(self, alert):
-        """Gestisce un allarme relativo alla porta"""
+    
+    
+    def _handle_door_alert(self, alert, db_service=None, dt_factory=None):
+        """
+        Gestisce un singolo allarme relativo alla porta, orchestrando l'invio
+        della notifica se le dipendenze sono fornite.
+        
+        Args:
+            alert (dict): Dettagli dell'allarme.
+            db_service: Istanza del servizio di database.
+            dt_factory: Istanza della factory dei Digital Twin.
+        """
         device_id = alert.get("dispenser_id")
         minutes = alert.get("minutes_open", 0)
         
-        # Invia notifica Telegram agli utenti
-        door_service = self.get_service("DoorEventService")
-        if door_service and hasattr(door_service, 'db_service') and hasattr(door_service, 'dt_factory'):
+        # Se le dipendenze per la notifica sono state iniettate, invia l'allarme.
+        if db_service and dt_factory:
+            # Importazione locale per evitare dipendenze circolari a livello di modulo
             from src.application.bot.notifications import send_door_open_alert
-            send_door_open_alert(door_service.db_service, door_service.dt_factory, device_id, minutes)
-
+            
+            send_door_open_alert(
+                db_service=db_service, 
+                dt_factory=dt_factory, 
+                device_id=device_id, 
+                minutes_open=minutes
+            )
     def get_replicas_by_type(self, dr_type):
         """Ottiene tutte le Digital Replica di un certo tipo"""
         return [dr for dr in self.digital_replicas if dr.get("type") == dr_type]
