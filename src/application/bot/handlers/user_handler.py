@@ -24,7 +24,7 @@ async def register_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_svc.get_user_by_username(username):
             raise ValueError(f"Username '{username}' già in uso.")
 
-        user_id = user_svc.create_user(username, password)
+        user_id = user_svc.create_user(username, password, role="supervisor")
         await update.message.reply_text(f"✅ Utente '{username}' registrato con successo (ID: {user_id}).")
         context.user_data['user_db_id'] = user_id
         context.user_data['username'] = username
@@ -74,14 +74,17 @@ async def login_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # Per i pazienti, aggiungi l'ID Telegram solo al loro DT associato
             if user_role == "patient":
+                user = db_service.get_dr("user", user_id)
                 dt_id = user.get('data', {}).get('dt_id')
                 if dt_id:
+                    # Aggiorna con debug logging
+                    print(f"DEBUG: Aggiungendo ID Telegram {telegram_id} al DT {dt_id}")
                     dt_collection = db_service.db["digital_twins"]
-                    # Aggiungi l'ID Telegram agli active_telegram_ids del DT
-                    dt_collection.update_one(
+                    result = dt_collection.update_one(
                         {"_id": dt_id},
                         {"$addToSet": {"metadata.active_telegram_ids": telegram_id}}
                     )
+                    print(f"DEBUG: Update risultato: {result.modified_count} documenti modificati")
                     
                     # Ottieni il nome del DT per il messaggio di benvenuto
                     dt = dt_collection.find_one({"_id": dt_id})
@@ -105,20 +108,19 @@ async def login_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
             else:
                 # Per i supervisori, usa il comportamento esistente
-                dt_factory = context.application.bot_data.get('dt_factory')
-                if dt_factory and db_service:
-                    # Accedi direttamente alla collezione MongoDB
-                    dt_collection = db_service.db["digital_twins"]
-                    query = {"metadata.user_id": user_id}
-                    user_dt_docs = list(dt_collection.find(query))
-                    
-                    for dt_doc in user_dt_docs:
-                        dt_id = str(dt_doc["_id"])
-                        # Usa direttamente l'operatore $addToSet per aggiungere l'ID
-                        dt_collection.update_one(
-                            {"_id": dt_id},
-                            {"$addToSet": {"metadata.active_telegram_ids": telegram_id}}
-                        )
+                dt_collection = db_service.db["digital_twins"]
+                query = {"metadata.user_id": user_id}
+                user_dt_docs = list(dt_collection.find(query))
+                print(f"DEBUG: Trovati {len(user_dt_docs)} DT per l'utente {user_id}")
+                
+                for dt_doc in user_dt_docs:
+                    dt_id = dt_doc.get("_id")
+                    print(f"DEBUG: Aggiungendo ID Telegram {telegram_id} al DT {dt_id}")
+                    result = dt_collection.update_one(
+                        {"_id": dt_id},
+                        {"$addToSet": {"metadata.active_telegram_ids": telegram_id}}
+                    )
+                    print(f"DEBUG: Update risultato: {result.modified_count} documenti modificati")
                 
                 await update.message.reply_text(
                     f"✅ Login effettuato con successo come supervisore *{username}*.",
@@ -150,7 +152,8 @@ async def logout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dt_factory = context.application.bot_data.get('dt_factory')
             db_service = context.application.bot_data.get('db_service')
             if dt_factory and db_service:
-                telegram_id = int(update.effective_user.id)
+                telegram_id = int(update.effective_user.id)  # Converti esplicitamente a int
+                print(f"DEBUG: Rimuovo ID Telegram {telegram_id} dai DT al logout")
                 
                 # Per i pazienti, rimuovi solo dall'unico DT associato
                 if user_role == "patient":

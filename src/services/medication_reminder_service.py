@@ -1,62 +1,29 @@
+
 from src.services.base import BaseService
 from datetime import datetime, timedelta
 from src.application.mqtt import send_mqtt_message
+import json
 
 class MedicationReminderService(BaseService):
     """Servizio promemoria medicinali per FR-1"""
     
     def __init__(self):
+        super().__init__()
         self.name = "MedicationReminderService"
-        self.active_reminders = {}
-        self.time_based_reminders = {}  # Nuova struttura per i promemoria basati sull'orario
-        self.last_notification_sent = {}  # Dizionario per tenere traccia dell'ultimo invio per dispenser
-        # Aggiungi questo dizionario per tenere traccia delle notifiche di dose mancata già inviate
-        self.missed_dose_notifications = {}  # {dispenser_id: {"YYYY-MM-DD": True}}
-
+        self.time_based_reminders = {}  # Per compatibilità con codice esistente
+        self.last_notification_sent = {}
+        self.missed_dose_notifications = {}
+        self.min_notification_interval = 3600  # 1 ora, configurable
         
+    # Metodo di compatibilità con lo scheduler esistente
     def execute(self, dt_data, **kwargs):
-        """Esegue il controllo delle assunzioni pianificate e invia promemoria se necessario"""
-        # Salva il db_service passato per le operazioni database
-        if 'db_service' in kwargs:
-            self.db_service = kwargs['db_service']
-    
-        # Aggiungi questa riga per catturare dt_factory
-        if 'dt_factory' in kwargs:
-            self.dt_factory = kwargs['dt_factory']
-    
-        results = {
-            "promemoria_verificati": 0,
-            "promemoria_inviati": 0  # Contatore corretto delle notifiche inviate
-        }
+        """
+        Metodo di compatibilità - delega al DigitalTwin
+        """
+        # Se abbiamo un'istanza DT, deleghiamo
+        if 'dt_instance' in kwargs:
+            return kwargs['dt_instance'].execute_medication_reminders()
         
-        # Recupera tutti i dispenser dal Digital Twin
-        dispensers = []
-        for replica in dt_data.get("digital_replicas", []):
-            if replica.get("type") == "dispenser_medicine":
-                dispensers.append(replica)
-    
-        for dispenser in dispensers:
-            results["promemoria_verificati"] += 1
-            
-            # Verifica promemoria basati sull'orario configurato
-            if self._check_time_based_reminder(dispenser):
-                sent = self._send_time_based_reminder(dispenser)
-                # Incrementa contatore SOLO se l'invio è avvenuto con successo
-                if sent:
-                    results["promemoria_inviati"] += 1
-            
-            # Verifica promemoria basati sul numero di dosi giornaliere
-            elif self._check_dispenser_needs_reminder(dispenser):
-                sent = self._send_reminder(dispenser)
-                # Incrementa contatore SOLO se l'invio è avvenuto con successo
-                if sent:
-                    results["promemoria_inviati"] += 1
-        
-        # Controllo di sicurezza che il conteggio sia corretto
-        if results["promemoria_inviati"] > 0:
-            print(f"[Scheduler]: Inviati {results['promemoria_inviati']} promemoria medicinali effettivi")
-        
-        return results
         
     def _check_time_based_reminder(self, dispenser):
         """Verifica se è il momento di inviare un promemoria basato sull'orario configurato"""
@@ -357,4 +324,96 @@ class MedicationReminderService(BaseService):
                     except Exception as e:
                         print(f"Errore nel controllo dose mancata per dispenser {dispenser.get('_id')}: {e}")
                 
+        return alerts
+    
+    # Nuovi metodi conformi all'interfaccia
+    def check_reminders(self, dispenser_data, timestamp=None):
+        """
+        Verifica se è necessario inviare un promemoria
+        """
+        if not timestamp:
+            timestamp = datetime.now()
+            
+        dispenser_id = dispenser_data.get("_id")
+        
+        # Logica per determinare se è necessario un promemoria
+        # (adattato dal metodo _check_time_based_reminder esistente)
+        
+        # Verifica se è già stato inviato un promemoria di recente
+        last_sent = self.last_notification_sent.get(dispenser_id)
+        if last_sent and (timestamp - last_sent).total_seconds() < self.min_notification_interval:
+            return False
+            
+        # Verifica orario di assunzione
+        medicine_time = dispenser_data.get("data", {}).get("medicine_time", {})
+        start_time = medicine_time.get("start")
+        end_time = medicine_time.get("end")
+        
+        if not start_time or not end_time:
+            return False
+            
+        try:
+            # Converti gli orari in oggetti datetime
+            today_str = timestamp.strftime("%Y-%m-%d")
+            
+            start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
+            end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
+            
+            # Verifica l'ultima notifica inviata (ora usa timestamp completo)
+            last_sent = self.last_notification_sent.get(dispenser_id)
+            
+            # Invia il promemoria solo se:
+            # 1. Non è già stato inviato recentemente (nell'intervallo minimo)
+            # 2. L'ora attuale è entro un minuto dall'inizio dell'intervallo
+            time_diff = (timestamp - start_dt).total_seconds()
+            
+            if (not last_sent or (timestamp - last_sent).total_seconds() > self.min_notification_interval) and 0 <= time_diff <= 60:
+                # Registra l'invio di questa notifica
+                self.last_notification_sent[dispenser_id] = timestamp
+                
+                # Mantiene anche la compatibilità col vecchio sistema di tracciamento
+                if dispenser_id not in self.time_based_reminders:
+                    self.time_based_reminders[dispenser_id] = {}
+                self.time_based_reminders[dispenser_id][today_str] = timestamp
+                
+                return True
+                
+            return False
+                
+        except Exception as e:
+            print(f"Errore nella verifica del promemoria basato sull'orario: {e}")
+            return False
+            
+    def send_reminder(self, dispenser_data, notification_channel):
+        """
+        Invia un promemoria per un dispenser
+        """
+        dispenser_id = dispenser_data.get("_id")
+        medicine_name = dispenser_data.get("data", {}).get("medicine_name", "medicinale")
+        
+        # Prepara il messaggio
+        message = f"1"  # O un messaggio più complesso
+        
+        # Usa il canale fornito dal DT
+        success = notification_channel(dispenser_id, message)
+        
+        if success:
+            # Aggiorna solo i dati locali, il DT si occuperà del database
+            self.last_notification_sent[dispenser_id] = datetime.now()
+            
+        return success
+        
+    def check_adherence(self, dispenser_data, config=None):
+        """
+        Verifica l'aderenza alla terapia
+        """
+        if config is None:
+            config = {"threshold": 1}
+            
+        # Implementa la logica per verificare l'aderenza
+        # (adattato dal metodo check_adherence_irregularities)
+        
+        alerts = []
+        # Logica per verificare l'aderenza...
+        
         return alerts

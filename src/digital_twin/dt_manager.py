@@ -106,7 +106,7 @@ class DTManager:
             dt_doc = self.dt_factory.get_dt(dt_id)
             metadata = dt_doc.get("metadata", {})
             metadata['user_id'] = user_id
-            metadata['active_telegram_ids'] = []  # Assicurati che questo campo sia sempre creato come array
+            metadata['active_telegram_ids'] = []  # Inizializza sempre come array vuoto
             
             # Aggiornamento esplicito per assicurare che i metadati siano salvati correttamente
             dt_collection = self.dt_factory.db_service.db["digital_twins"]

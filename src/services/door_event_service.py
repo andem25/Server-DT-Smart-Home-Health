@@ -1,3 +1,4 @@
+# Modifichiamo la classe esistente per implementare la nuova interfaccia
 from datetime import datetime
 from src.services.base import BaseService
 import json
@@ -8,291 +9,235 @@ class DoorEventService(BaseService):
     """
     
     def __init__(self, db_service=None):
+        super().__init__()
         self.name = "DoorEventService"
         self.last_state = {}
         self.irregularity_events = {}
-        self.last_notifications = {}  # Aggiungi un dizionario per tenere traccia delle notifiche
+        self.last_notifications = {}
         self.notification_threshold = 30  # secondi
         self.db_service = db_service
-
+    
+    # Metodo di compatibilità con lo scheduler esistente
+    def execute(self, dt_data, threshold_minutes=1, **kwargs):
+        """
+        Metodo di compatibilità - delega al DigitalTwin
+        """
+        # Se abbiamo un'istanza DT, deleghiamo
+        if 'dt_instance' in kwargs:
+            return kwargs['dt_instance'].execute_door_monitoring(threshold_minutes)
+        
+        # Altrimenti fallback al vecchio comportamento
+        return self._legacy_execute(dt_data, threshold_minutes)
+    
+    # Metodi dell'interfaccia DoorServiceInterface
+    def check_door_alerts(self, dispenser_data, threshold_minutes=1):
+        """
+        Verifica se ci sono porte rimaste aperte troppo a lungo
+        """
+        alerts = []
+        now = datetime.now()
+        
+        dispenser_id = dispenser_data.get("_id")
+        door_status = dispenser_data.get("data", {}).get("door_status")
+        last_event_time_str = dispenser_data.get("data", {}).get("last_door_event")
+        
+        # Controlla solo se la porta è aperta e se abbiamo un timestamp valido
+        if door_status == "open" and last_event_time_str:
+            try:
+                # Converte il timestamp in oggetto datetime
+                if isinstance(last_event_time_str, str):
+                    last_event_time = datetime.fromisoformat(last_event_time_str)
+                else:
+                    last_event_time = last_event_time_str
+                
+                # Calcola da quanti minuti è aperta
+                minutes_open = (now - last_event_time).total_seconds() / 60
+                
+                if minutes_open > threshold_minutes:
+                    alert = {
+                        "type": "door_open_too_long",
+                        "dispenser_id": dispenser_id,
+                        "dispenser_name": dispenser_data.get("data", {}).get("name", "dispenser"),
+                        "location": dispenser_data.get("data", {}).get("location", "sconosciuta"),
+                        "minutes_open": round(minutes_open),
+                        "severity": "medium", 
+                        "timestamp": now.isoformat()
+                    }
+                    alerts.append(alert)
+            except Exception as e:
+                print(f"Errore nel controllo porta {dispenser_id}: {e}")
+        
+        return alerts
+    
+    def handle_door_event(self, dispenser_id, state, timestamp=None):
+        """
+        Gestisce un evento di cambio stato della porta
+        """
+        if timestamp is None:
+            timestamp = datetime.now()
+        
+        # Ottieni il dispenser per verificare la regolarità
+        if self.db_service:
+            dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
+            if dispenser:
+                # Verifica se l'evento è regolare
+                is_regular = self.is_event_regular(dispenser, timestamp, state)
+                
+                # Crea l'oggetto evento
+                event_regularity = "regular" if is_regular else "irregular"
+                reason = "within_schedule" if is_regular else "outside_schedule"
+                
+                # Dettagli dell'evento
+                event_details = {
+                    "state": state,
+                    "timestamp": timestamp.isoformat(),
+                    "regularity": event_regularity,
+                    "reason": reason,
+                    "is_regular": is_regular
+                }
+                
+                # Memorizza l'evento nel database
+                self.door_state_changed(dispenser_id, state, timestamp, is_regular)
+                
+                return event_details
+        
+        # Se non è stato possibile verificare la regolarità, considera l'evento come irregolare
+        return {
+            "state": state,
+            "timestamp": timestamp.isoformat() if timestamp else datetime.now().isoformat(),
+            "regularity": "irregular",
+            "reason": "unknown",
+            "is_regular": False
+        }
+    
+    def is_event_regular(self, dispenser_data, timestamp, state):
+        """
+        Determina se un evento porta è regolare in base all'orario configurato
+        """
+        # Ottieni l'orario di assunzione configurato
+        medicine_time = dispenser_data.get("data", {}).get("medicine_time", {})
+        if not medicine_time:
+            return False
+            
+        start_time = medicine_time.get("start")
+        end_time = medicine_time.get("end")
+        
+        if not start_time or not end_time:
+            return False
+        
+        try:
+            # Converti orari in oggetti datetime per confronto
+            today_str = timestamp.strftime("%Y-%m-%d")
+            start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
+            end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
+            
+            # L'evento è regolare se avviene nell'intervallo configurato
+            return start_dt <= timestamp <= end_dt
+            
+        except ValueError as e:
+            print(f"Errore nel parsing degli orari di medicina: {e}")
+            return False
+    
+    # Mantieni i metodi esistenti per retrocompatibilità
     def handle_door_status_update(self, db_service, dt_factory, dispenser_id, payload):
         """
         Gestisce un aggiornamento di stato della porta ricevuto via MQTT
-        
-        Args:
-            db_service: Servizio database per accedere ai dati
-            dt_factory: Factory per accedere ai Digital Twin
-            dispenser_id (str): ID del dispenser
-            payload (str): Payload JSON ricevuto via MQTT
         """
         try:
             # Parsing del payload
-            try:
-                data = json.loads(payload)
-                door_value = data.get("door")
-                time_str = data.get("time")
-                
-                # Converti il valore numerico in stato testuale
-                if door_value == 1:
-                    state = "open"
-                elif door_value == 0:
-                    state = "closed"
-                else:
-                    print(f"DoorEventService: Valore porta non valido: {door_value}")
-                    return
-                
-                # Crea timestamp completo
-                if time_str:
-                    # Crea un timestamp completo usando la data di oggi e l'ora ricevuta
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    timestamp = datetime.fromisoformat(f"{today}T{time_str}")
-                else:
-                    timestamp = datetime.now()
-                    time_str = timestamp.strftime("%H:%M:%S")
-                
-            except json.JSONDecodeError:
-                print(f"DoorEventService: Formato payload non valido: '{payload}'")
-                return
-            except ValueError as e:
-                print(f"DoorEventService: Errore nel parsing dell'orario: {e}")
-                timestamp = datetime.now()
-                time_str = timestamp.strftime("%H:%M:%S")
-        
-            # Genera timestamp ISO
-            timestamp_iso = timestamp.isoformat()
+            data = json.loads(payload)
+            door_value = data.get("door")
+            time_str = data.get("time")
             
-            # Ottieni il dispenser per verificare gli orari di medicina configurati
-            dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
+            # Converti il valore numerico in stato testuale
+            if door_value == 1:
+                state = "open"
+            elif door_value == 0:
+                state = "closed"
+            else:
+                print(f"DoorEventService: Valore porta non valido: {door_value}")
+                return
+            
+            # Crea timestamp completo
+            if time_str:
+                today = datetime.now().strftime("%Y-%m-%d")
+                timestamp = datetime.fromisoformat(f"{today}T{time_str}")
+            else:
+                timestamp = datetime.now()
+            
+            # Assegna i servizi se sono stati passati
+            if db_service:
+                self.db_service = db_service
+            if dt_factory:
+                self.dt_factory = dt_factory
+            
+            # Ottieni il dispenser
+            dispenser = self.db_service.get_dr("dispenser_medicine", dispenser_id)
             if not dispenser:
                 print(f"Dispenser {dispenser_id} non trovato nel database")
                 return
             
-            # Verifica se l'evento è regolare in base all'orario di assunzione configurato
-            is_regular = False
-            event_regularity = "irregular"
-            reason = "outside_schedule"
-            
-            # Ottieni l'orario di assunzione configurato
-            medicine_time = dispenser.get("data", {}).get("medicine_time", {})
-            if medicine_time:
-                start_time = medicine_time.get("start")
-                end_time = medicine_time.get("end")
-                
-                if start_time and end_time:
-                    # Converti orari in oggetti datetime per confronto
-                    try:
-                        today_str = timestamp.strftime("%Y-%m-%d")
-                        start_dt = datetime.strptime(f"{today_str} {start_time}", "%Y-%m-%d %H:%M")
-                        end_dt = datetime.strptime(f"{today_str} {end_time}", "%Y-%m-%d %H:%M")
-                        
-                        # Verifica se l'evento è all'interno dell'intervallo configurato
-                        if start_dt <= timestamp <= end_dt:
-                            is_regular = True
-                            event_regularity = "regular"
-                            reason = "within_schedule"
-                    except ValueError as e:
-                        print(f"Errore nel parsing degli orari di medicina: {e}")
-        
-            # Prepara il nuovo evento porta con informazioni sulla regolarità
-            new_door_event = {
-                "state": state,
-                "timestamp": timestamp_iso,
-                "regularity": event_regularity,
-                "reason": reason
-            }
-            
-            # Ottieni gli eventi esistenti
-            door_events = dispenser.get("data", {}).get("door_events", [])
-            if not door_events:
-                door_events = []
-                
-            # Aggiungi il nuovo evento mantenendo una lista FIFO
-            door_events.append(new_door_event)
-            
-            # Limita il numero massimo di eventi memorizzati (conserva gli ultimi 1000)
-            MAX_DOOR_EVENTS = 1000
-            while len(door_events) > MAX_DOOR_EVENTS:
-                door_events.pop(0)
-        
-            # Aggiorna il documento nel database
-            update_operation = {
-                "$set": {
-                    "data.door_status": state,
-                    "data.last_door_event": timestamp_iso,
-                    "data.door_events": door_events
-                },
-                # Rimuovi il campo duplicato se esiste
-                "$unset": {
-                    "door_status": ""
-                }
-            }
-            db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
-            
-            # Log con informazioni sulla regolarità
-            regularity_str = "REGOLARE" if is_regular else "IRREGOLARE"
-            print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')} - {regularity_str}")
-            
-            # Importa la funzione per inviare notifiche
-            from src.application.bot.notifications import send_door_irregularity_alert
+            # Usa il nuovo metodo dell'interfaccia
+            event_details = self.handle_door_event(dispenser_id, state, timestamp)
+            is_regular = event_details.get("is_regular", False)
             
             # Invia notifica all'utente se l'evento è irregolare
-            if not is_regular:
-                event_details = {
-                    "timestamp": timestamp,
-                    "state": state,
-                    "regularity": event_regularity,
-                    "reason": reason
-                }
-                send_door_irregularity_alert(db_service, dt_factory, dispenser_id, state, timestamp, event_details)
-        
-            # Notifica il servizio usando il metodo esistente door_state_changed
-            self.door_state_changed(dispenser_id, state, timestamp, is_regular)
+            if not is_regular and hasattr(self, 'dt_factory'):
+                from src.application.bot.notifications import send_door_irregularity_alert
+                send_door_irregularity_alert(
+                    self.db_service,
+                    self.dt_factory,
+                    dispenser_id,
+                    state,
+                    timestamp,
+                    event_details
+                )
             
         except Exception as e:
             print(f"Errore nell'aggiornamento dello stato porta per dispenser {dispenser_id}: {e}")
             import traceback
             traceback.print_exc()
-
-    def execute(self, dt_data, threshold_minutes=1):
-        """Verifica se ci sono porte di dispenser rimaste aperte troppo a lungo."""
-        alerts = []
-        # Cerca tra tutti i dispenser
-        dispensers = [dr for dr in dt_data.get("digital_replicas", []) if dr.get("type") == "dispenser_medicine"]
-        
-        now = datetime.now()
-
-        for dispenser in dispensers:
-            dispenser_data = dispenser.get("data", {})
-            door_status = dispenser_data.get("door_status")
-            last_event_time_str = dispenser_data.get("last_door_event")
-            
-            # Aggiungi log per debug
-            root_door_status = dispenser.get("door_status", "non presente")
-            print(f"DEBUG - Dispenser {dispenser.get('_id')}: door_status in data = '{door_status}', door_status a livello root = '{root_door_status}'")
-            
-            # Controlla solo se la porta è aperta e se abbiamo un timestamp valido
-            if door_status == "open" and last_event_time_str:
-                try:
-                    # Converte il timestamp in oggetto datetime
-                    if isinstance(last_event_time_str, str):
-                        last_event_time = datetime.fromisoformat(last_event_time_str)
-                    else:
-                        last_event_time = last_event_time_str
-                    
-                    # Calcola da quanti minuti è aperta
-                    minutes_open = (now - last_event_time).total_seconds() / 60
-                    
-                    if minutes_open > threshold_minutes:
-                        alert = {
-                            "type": "Porta aperta troppo a lungo!",
-                            "dispenser_id": dispenser.get("_id"),
-                            "dispenser_name": dispenser_data.get("name", "dispenser"),
-                            "location": dispenser_data.get("location", "sconosciuta"),
-                            "minutes_open": round(minutes_open),
-                            "severity": "medium", 
-                            "timestamp": now.isoformat()
-                        }
-                        alerts.append(alert)
-                        
-                        # Invia la notifica attivamente
-                        try:
-                            # Importa qui per evitare dipendenze circolari
-                            from src.application.bot.notifications import send_door_irregularity_alert
-                            
-                            # Controlla se il dispenser ha già ricevuto una notifica recentemente
-                            dispenser_id = dispenser.get("_id")
-                            
-                            # Usa il dizionario invece di attributi dinamici
-                            last_notification_time = self.last_notifications.get(dispenser_id)
-                            
-                            # Aggiungi log per debug
-                            print(f"DEBUG - Porta aperta: dispenser_id={dispenser_id}, minuti={minutes_open}, ultima_notifica={last_notification_time}")
-                            
-                            # Invia solo se non è stata inviata una notifica negli ultimi 1 minuti
-                            if not last_notification_time or (now - last_notification_time).total_seconds() > 60:
-                                # Dettagli aggiuntivi per la notifica
-                                event_details = {
-                                    "reason": "open_too_long",
-                                    "minutes": round(minutes_open)
-                                }
-                                
-                                # Verifica esplicitamente i servizi
-                                has_db = hasattr(self, 'db_service') and self.db_service is not None
-                                has_dt = hasattr(self, 'dt_factory') and self.dt_factory is not None
-                                print(f"DEBUG - Servizi disponibili: db_service={has_db}, dt_factory={has_dt}")
-                                
-                                if has_db and has_dt:
-                                    # Invia la notifica
-                                    send_door_irregularity_alert(
-                                        self.db_service,
-                                        self.dt_factory,
-                                        dispenser_id,
-                                        "open",
-                                        now,
-                                        event_details
-                                    )
-                                    
-                                    # Memorizza l'orario dell'ultima notifica nel dizionario
-                                    self.last_notifications[dispenser_id] = now
-                                    print(f"Inviata notifica per porta aperta troppo a lungo: {dispenser_data.get('name')} ({minutes_open:.1f} minuti)")
-                                else:
-                                    print(f"ERRORE: Impossibile inviare notifica - servizi non disponibili")
-                            else:
-                                # Aggiungi log quando non invia notifica
-                                seconds_since_last = (now - last_notification_time).total_seconds()
-                                print(f"Notifica non inviata: troppo recente ({seconds_since_last:.1f} secondi fa)")
-                        except Exception as e:
-                            print(f"Errore nell'invio della notifica porta aperta: {e}")
-                            import traceback
-                            traceback.print_exc()
-                        
-                except Exception as e:
-                    print(f"Errore nel controllo porta {dispenser.get('_id')}: {e}")
-
-        return alerts
-    def door_state_changed(self, door_id, state, timestamp=None, is_regular=False):
+    
+    def door_state_changed(self, dispenser_id, state, timestamp, is_regular):
         """
-        Gestisce il cambio di stato di una porta e aggiorna il database
+        Aggiorna lo stato della porta nel database e registra l'evento
         
         Args:
-            door_id: ID della porta
-            state: Stato della porta ('open' o 'closed')
-            timestamp: Timestamp dell'evento
-            is_regular: Se l'evento è considerato "regolare" rispetto all'orario di assunzione
+            dispenser_id: ID del dispenser
+            state: Nuovo stato della porta ('open' o 'closed')
+            timestamp: Data e ora dell'evento
+            is_regular: Flag che indica se l'evento è regolare
         """
-        if timestamp is None:
-            timestamp = datetime.now()
+        if not self.db_service:
+            print(f"Impossibile aggiornare stato porta: servizio database non disponibile")
+            return
             
-        # Memorizza lo stato localmente
-        self.last_state[door_id] = {
-            'state': state,
-            'timestamp': timestamp,
-            'is_regular': is_regular
-        }
-        
-        # Traccia le irregolarità separatamente
-        if not is_regular:
-            if door_id not in self.irregularity_events:
-                self.irregularity_events[door_id] = []
-            
-            self.irregularity_events[door_id].append({
-                'state': state,
-                'timestamp': timestamp,
-                'action': 'open' if state == 'open' else 'close'
-            })
-        
-        # Aggiorna il database se disponibile
-        if self.db_service:
+        try:
+            # Aggiorna lo stato attuale della porta nel dispenser
             update_operation = {
                 "$set": {
                     "data.door_status": state,
-                    "data.last_door_event": timestamp.isoformat(),
-                    "data.last_event_regular": is_regular
+                    "data.last_door_event": timestamp.isoformat()
                 }
             }
-            self.db_service.update_dr("dispenser_medicine", door_id, update_operation)
+            self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
             
-        # Log con informazioni sulla regolarità
-        regularity_str = "regolare" if is_regular else "irregolare"
-        print(f"[DoorEventService] Porta {door_id}: {state} alle {timestamp.strftime('%H:%M:%S')} - {regularity_str}")
-    
+            # Aggiungi il nuovo evento alla cronologia degli eventi
+            event_data = {
+                "state": state,
+                "timestamp": timestamp.isoformat(),
+                "is_regular": is_regular
+            }
+            
+            # Aggiungi l'evento alla lista degli eventi porta
+            update_operation = {
+                "$push": {
+                    "data.door_events": event_data
+                }
+            }
+            self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
+            
+            print(f"Stato porta aggiornato per dispenser {dispenser_id}: {state}, regolare: {is_regular}")
+        
+        except Exception as e:
+            print(f"Errore nell'aggiornamento dello stato porta nel database: {e}")

@@ -123,18 +123,12 @@ class SchedulerService:
         try:
             door_service = dt_instance.get_service("DoorEventService")
             if door_service:
-                # Ottieni i dati aggiornati del DT
-                dt_data = dt_instance.get_dt_data()
+                # Invece di chiamare direttamente il servizio, usiamo il metodo del DT
+                # che gestisce correttamente l'invio delle notifiche
+                result = dt_instance.execute_door_monitoring()
                 
-                # Passa le dipendenze necessarie al servizio
-                door_service.db_service = self.db_service
-                door_service.dt_factory = self.dt_factory
-                
-                # Esegui il controllo delle porte
-                alerts = door_service.execute(dt_data)
-                
-                if alerts and len(alerts) > 0:
-                    print(f"[Scheduler] {dt_name}: Rilevate {len(alerts)} porte aperte da troppo tempo")
+                if result and len(result.get("door_alerts", [])) > 0:
+                    print(f"[Scheduler] {dt_name}: Gestite {len(result['door_alerts'])} notifiche di porta aperta")
                 
         except Exception as e:
-            print(f"[Scheduler] Errore nel controllo porte per {dt_name}: {e}") 
+            print(f"[Scheduler] Errore nel controllo porte per {dt_name}: {e}")

@@ -36,38 +36,35 @@ async def send_emergency_alert(telegram_id: int, device_id: str, dt_name: str):
         print(f"❌ Errore durante invio notifica di emergenza: {e}")
 
 def send_notification_to_dt_users(dt_factory, dt_id, message, fallback_id=157933243):
-    """
-    Invia notifiche a tutti gli ID Telegram attivi di un Digital Twin
-    
-    Args:
-        dt_factory: Factory per accedere ai Digital Twin
-        dt_id (str): ID del Digital Twin
-        message (str): Messaggio da inviare
-        fallback_id (int): ID di fallback se non ci sono ID attivi
-    
-    Returns:
-        int: Numero di notifiche inviate con successo
-    """
+    """Invia notifiche a tutti gli ID Telegram attivi di un Digital Twin"""
     try:
-        # Ottieni il Digital Twin per accedere agli ID Telegram attivi
+        # Ottieni il Digital Twin
         dt = None
         if dt_factory:
             dt = dt_factory.get_dt(dt_id)
-    
-        # Ottieni gli ID Telegram attivi dal DT
+            print(f"DEBUG: Recuperato DT: {dt_id} - {'trovato' if dt else 'non trovato'}")
+        
+        # Ottieni gli ID Telegram attivi
         telegram_ids = []
         if dt and "metadata" in dt and "active_telegram_ids" in dt["metadata"]:
-            # Converti esplicitamente tutti gli ID a int
-            try:
-                telegram_ids = [int(id_val) for id_val in dt["metadata"]["active_telegram_ids"]]
-                print(f"DEBUG: IDs Telegram trovati per notifica: {telegram_ids}")
-            except (ValueError, TypeError) as e:
-                print(f"ERRORE nella conversione degli ID Telegram: {e}")
-    
-        # Se non ci sono ID attivi, usa l'ID di fallback
+            active_ids = dt["metadata"]["active_telegram_ids"]
+            print(f"DEBUG: ID Telegram trovati (raw): {active_ids}")
+            
+            # Normalizza gli ID come interi quando possibile
+            for id_val in active_ids:
+                try:
+                    if id_val:  # Verifica che non sia None o vuoto
+                        # Converti sempre a int per uniformità
+                        telegram_ids.append(int(id_val))
+                except (ValueError, TypeError):
+                    print(f"AVVISO: Impossibile convertire ID Telegram '{id_val}' a intero")
+            
+            print(f"DEBUG: ID Telegram normalizzati: {telegram_ids}")
+        
+        # Se non ci sono ID, usa il fallback
         if not telegram_ids:
             telegram_ids = [fallback_id]
-            print(f"ATTENZIONE: Nessun ID Telegram trovato, uso ID di fallback {fallback_id}")
+            print(f"ATTENZIONE: Nessun ID Telegram valido trovato per {dt_id}, uso fallback {fallback_id}")
     
         # Ottieni il token del bot dalle variabili d'ambiente
         from os import environ
@@ -90,10 +87,10 @@ def send_notification_to_dt_users(dt_factory, dt_id, message, fallback_id=157933
             
             response = requests.post(url, json=data)
             if response.status_code == 200:
-                print(f"Notifica inviata all'ID Telegram: {telegram_id}")
+                print(f"✅ Notifica inviata all'ID Telegram: {telegram_id}")
                 successful_sends += 1
             else:
-                print(f"Errore nell'invio notifica a {telegram_id}: {response.status_code} - {response.text}")
+                print(f"❌ Errore nell'invio notifica a {telegram_id}: {response.status_code} - {response.text}")
     
         return successful_sends
             
@@ -105,16 +102,7 @@ def send_notification_to_dt_users(dt_factory, dt_id, message, fallback_id=157933
 
 # Aggiungi la nuova funzione
 def send_generic_emergency_alert(db_service, device_id):
-    """
-    Invia un avviso di emergenza generico quando non c'è un DT associato
-    
-    Args:
-        db_service: Servizio database per accedere ai dati
-        device_id (str): ID del dispositivo che ha generato l'emergenza
-    
-    Returns:
-        int: Numero di notifiche inviate con successo
-    """
+    """Invia un avviso di emergenza generico quando non c'è un DT associato"""
     try:
         # Ottieni il dispenser dal database
         dispenser = db_service.get_dr("dispenser_medicine", device_id)
@@ -136,17 +124,22 @@ def send_generic_emergency_alert(db_service, device_id):
         for dt_doc in user_dt_docs:
             metadata = dt_doc.get("metadata", {})
             active_ids = metadata.get("active_telegram_ids", [])
+            print(f"DEBUG: ID Telegram trovati in DT {dt_doc.get('_id')}: {active_ids}")
+            
             for id_val in active_ids:
                 try:
-                    all_telegram_ids.add(int(id_val))
+                    if id_val:  # Verifica che non sia None o vuoto
+                        all_telegram_ids.add(int(id_val))
                 except (ValueError, TypeError):
-                    pass
+                    print(f"AVVISO: Impossibile convertire ID Telegram '{id_val}' a intero")
+        
+        print(f"DEBUG: Tutti gli ID Telegram raccolti: {all_telegram_ids}")
         
         # Se non ci sono ID, usa l'ID di fallback
         if not all_telegram_ids:
             all_telegram_ids = {157933243}
             print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
-        
+    
         # Prepara il messaggio
         dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
         message = (
@@ -189,22 +182,7 @@ def send_generic_emergency_alert(db_service, device_id):
         return 0
 
 def send_environmental_alert(db_service, dt_factory, device_id, measure_type, value, unit, min_value, max_value):
-    """
-    Invia una notifica di allarme ambientale all'utente
-    
-    Args:
-        db_service: Servizio database per accedere ai dati
-        dt_factory: Factory per accedere ai Digital Twin
-        device_id (str): ID del dispositivo che ha rilevato il valore ambientale anomalo
-        measure_type (str): Tipo di misura (temperatura, umidità, ecc.)
-        value (float): Valore misurato
-        unit (str): Unità di misura
-        min_value (float): Valore minimo consentito
-        max_value (float): Valore massimo consentito
-    
-    Returns:
-        int: Numero di notifiche inviate con successo
-    """
+    """Invia una notifica di allarme ambientale all'utente"""
     try:
         # DEBUG: Stampa i parametri ricevuti
         print(f"DEBUG - send_environmental_alert - Parametri: device_id={device_id}, measure={measure_type}, value={value}")
@@ -283,16 +261,21 @@ def send_environmental_alert(db_service, dt_factory, device_id, measure_type, va
             for dt_doc in user_dt_docs:
                 metadata = dt_doc.get("metadata", {})
                 active_ids = metadata.get("active_telegram_ids", [])
+                print(f"DEBUG: ID Telegram trovati in DT {dt_doc.get('_id')}: {active_ids}")
+            
                 for id_val in active_ids:
                     try:
-                        all_telegram_ids.add(int(id_val))
+                        if id_val:  # Verifica che non sia None o vuoto
+                            all_telegram_ids.add(int(id_val))
                     except (ValueError, TypeError):
-                        pass
-            
-            # Se non ci sono ID, usa l'ID di fallback
-            if not all_telegram_ids:
-                all_telegram_ids = {157933243}
-                print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
+                        print(f"AVVISO: Impossibile convertire ID Telegram '{id_val}' a intero")
+        
+        print(f"DEBUG: Tutti gli ID Telegram raccolti: {all_telegram_ids}")
+        
+        # Se non ci sono ID, usa l'ID di fallback
+        if not all_telegram_ids:
+            all_telegram_ids = {157933243}
+            print(f"ATTENZIONE: Nessun ID Telegram trovato per l'utente {user_db_id}, uso ID di fallback")
             
             # DEBUG
             print(f"DEBUG - ID Telegram trovati: {all_telegram_ids}")
@@ -331,20 +314,7 @@ def send_environmental_alert(db_service, dt_factory, device_id, measure_type, va
         return 0
 
 def send_door_irregularity_alert(db_service, dt_factory, device_id, state, timestamp, event_details):
-    """
-    Invia una notifica all'utente quando si verifica un'apertura/chiusura porta irregolare
-    
-    Args:
-        db_service: Servizio database per accedere ai dati
-        dt_factory: Factory per accedere ai Digital Twin
-        device_id (str): ID del dispenser
-        state (str): Stato della porta ('open' o 'closed')
-        timestamp (datetime): Timestamp dell'evento
-        event_details (dict): Dettagli aggiuntivi sull'evento
-        
-    Returns:
-        int: Numero di notifiche inviate con successo
-    """
+    """Invia una notifica all'utente quando si verifica un'apertura/chiusura porta irregolare"""
     try:
         # Ottieni il dispenser dal database
         dispenser = db_service.get_dr("dispenser_medicine", device_id)
@@ -411,11 +381,16 @@ def send_door_irregularity_alert(db_service, dt_factory, device_id, state, times
             for dt_doc in user_dt_docs:
                 metadata = dt_doc.get("metadata", {})
                 active_ids = metadata.get("active_telegram_ids", [])
+                print(f"DEBUG: ID Telegram trovati in DT {dt_doc.get('_id')}: {active_ids}")
+        
                 for id_val in active_ids:
                     try:
-                        all_telegram_ids.add(int(id_val))
+                        all_telegram_ids.add(int(id_val))  # Converti a int
                     except (ValueError, TypeError):
-                        pass
+                        if id_val:  # Aggiungi solo se non è vuoto
+                            all_telegram_ids.add(id_val)
+    
+            print(f"DEBUG: Tutti gli ID Telegram raccolti: {all_telegram_ids}")
             
             # Se non ci sono ID, usa l'ID di fallback
             if not all_telegram_ids:
@@ -456,9 +431,7 @@ def send_door_irregularity_alert(db_service, dt_factory, device_id, state, times
         return 0
 
 def send_adherence_notification(db_service, dt_factory, device_id, message_type, details):
-    """
-    Invia una notifica all'utente relativa all'aderenza alle terapie
-    """
+    """Invia una notifica all'utente relativa all'aderenza alle terapie"""
     try:
         # Ottieni il dispenser dal database
         dispenser = db_service.get_dr("dispenser_medicine", device_id)
@@ -514,11 +487,16 @@ def send_adherence_notification(db_service, dt_factory, device_id, message_type,
             for dt_doc in user_dt_docs:
                 metadata = dt_doc.get("metadata", {})
                 active_ids = metadata.get("active_telegram_ids", [])
+                print(f"DEBUG: ID Telegram trovati in DT {dt_doc.get('_id')}: {active_ids}")
+                
                 for id_val in active_ids:
                     try:
-                        all_telegram_ids.add(int(id_val))
+                        if id_val:  # Verifica che non sia None o vuoto
+                            all_telegram_ids.add(int(id_val))
                     except (ValueError, TypeError):
-                        pass
+                        print(f"AVVISO: Impossibile convertire ID Telegram '{id_val}' a intero")
+            
+            print(f"DEBUG: Tutti gli ID Telegram raccolti: {all_telegram_ids}")
         
         # Se non ci sono ID, usa l'ID di fallback
         if not all_telegram_ids:
@@ -554,6 +532,107 @@ def send_adherence_notification(db_service, dt_factory, device_id, message_type,
             
     except Exception as e:
         print(f"Errore nell'invio della notifica di aderenza: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+def send_door_open_alert(db_service, dt_factory, device_id, minutes_open):
+    """Invia una notifica all'utente quando una porta è rimasta aperta troppo a lungo"""
+    try:
+        # Ottieni il dispenser dal database
+        dispenser = db_service.get_dr("dispenser_medicine", device_id)
+        if not dispenser:
+            return 0
+            
+        # Ottieni i dettagli del dispenser
+        dispenser_name = dispenser.get("data", {}).get("name", "Dispenser")
+        
+        # Trova il Digital Twin associato al dispositivo
+        dts_with_dispenser = []
+        all_dts = db_service.query_drs("digital_twins", {})
+        for dt in all_dts:
+            dt_id = str(dt.get("_id"))
+            dt_instance = dt_factory.get_dt_instance(dt_id)
+            if dt_instance and dt_instance.contains_dr("dispenser_medicine", device_id):
+                dts_with_dispenser.append(dt_id)
+                
+        dt_name = "Casa"  # Default
+        
+        if dts_with_dispenser:
+            dt_id = dts_with_dispenser[0]  # Prendiamo il primo DT associato
+            dt = dt_factory.get_dt(dt_id)
+            if dt:
+                dt_name = dt.get("name", "Casa")
+    
+        # Costruisci il messaggio di notifica
+        message = (
+            f"🚪 *ALLARME PORTA APERTA*\n\n"
+            f"⚠️ La porta del dispenser *{dispenser_name}* è rimasta aperta per *{minutes_open} minuti*!\n"
+            f"📍 Posizione: {dt_name}\n\n"
+            f"👉 Si consiglia di verificare la situazione."
+        )
+        
+        # Invia la notifica a tutti gli utenti attivi del DT
+        if dts_with_dispenser:
+            dt_id = dts_with_dispenser[0]
+            return send_notification_to_dt_users(dt_factory, dt_id, message)
+        else:
+            # Codice per recuperare gli ID Telegram dall'utente proprietario
+            user_db_id = dispenser.get("user_db_id")
+            if not user_db_id:
+                return 0
+                
+            # Recupera tutti i DT dell'utente per ottenere gli ID Telegram
+            dt_collection = db_service.db["digital_twins"]
+            query = {"metadata.user_id": user_db_id}
+            user_dt_docs = list(dt_collection.find(query))
+            
+            # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
+            all_telegram_ids = set()
+            for dt_doc in user_dt_docs:
+                metadata = dt_doc.get("metadata", {})
+                active_ids = metadata.get("active_telegram_ids", [])
+                
+                for id_val in active_ids:
+                    try:
+                        if id_val:  # Verifica che non sia None o vuoto
+                            all_telegram_ids.add(int(id_val))
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Se non ci sono ID, usa l'ID di fallback
+            if not all_telegram_ids:
+                all_telegram_ids = {157933243}
+            
+            # Invia il messaggio a tutti gli ID raccolti
+            from os import environ
+            token = environ.get('TELEGRAM_TOKEN')
+            
+            if not token:
+                print("ERRORE: Token Telegram non trovato")
+                return 0
+            
+            import requests
+            successful_sends = 0
+            for telegram_id in all_telegram_ids:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                data = {
+                    "chat_id": telegram_id,
+                    "text": message,
+                    "parse_mode": "Markdown"
+                }
+                
+                response = requests.post(url, json=data)
+                if response.status_code == 200:
+                    print(f"Notifica di porta aperta troppo a lungo inviata all'ID Telegram: {telegram_id}")
+                    successful_sends += 1
+                else:
+                    print(f"Errore nell'invio notifica: {response.status_code}")
+                    
+            return successful_sends
+
+    except Exception as e:
+        print(f"Errore nell'invio dell'allarme porta aperta: {e}")
         import traceback
         traceback.print_exc()
         return 0
