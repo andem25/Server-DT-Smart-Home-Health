@@ -76,17 +76,6 @@ class SchedulerService:
                     # Esegui anche il controllo delle porte
                     self._execute_door_service(dt_instance, dt_name)
                     
-                    # Esegui anche altri servizi se necessario
-                    if dt_instance.get_service("EmergencyRequestService"):
-                        # Passa anche dt_factory al servizio
-                        dt_instance.execute_service("EmergencyRequestService", 
-                                                   db_service=self.db_service,
-                                                   dt_factory=self.dt_factory)
-                    
-                    if dt_instance.get_service("IrregularityAlertService"):
-                        dt_instance.execute_service("IrregularityAlertService", 
-                               db_service=self.db_service,
-                               dt_factory=self.dt_factory)
                     
                 except Exception as e:
                     print(f"[Scheduler] Errore nell'esecuzione dei servizi per DT {dt_name}: {e}")
@@ -142,10 +131,10 @@ class SchedulerService:
                 door_service.dt_factory = self.dt_factory
                 
                 # Esegui il controllo delle porte
-                alerts = door_service.check_door_irregularities(dt_data)
+                alerts = door_service.execute(dt_data)
                 
                 if alerts and len(alerts) > 0:
                     print(f"[Scheduler] {dt_name}: Rilevate {len(alerts)} porte aperte da troppo tempo")
                 
         except Exception as e:
-            print(f"[Scheduler] Errore nel controllo porte per {dt_name}: {e}")
+            print(f"[Scheduler] Errore nel controllo porte per {dt_name}: {e}") 

@@ -181,51 +181,6 @@ class MqttSubscriber:
         except Exception as e:
             print(f"MQTT Subscriber: Errore nella gestione del messaggio: {e}")
 
-    def _process_message(self, client, userdata, msg):
-        """Elabora i messaggi MQTT ricevuti."""
-        try:
-            topic = msg.topic
-            payload = json.loads(msg.payload.decode())
-            
-            # Gestione eventi porta
-            if topic.startswith("dispenser/") and topic.endswith("/door"):
-                try:
-                    dispenser_id = topic.split("/")[1]
-                    state = payload.get("state", "unknown")
-                    
-                    if state in ["open", "closed"]:
-                        timestamp = datetime.now()
-                        
-                        # Aggiorna il documento nel database
-                        update_operation = {
-                            "$set": {
-                                "data.door_status": state,
-                                "data.last_door_event": timestamp.isoformat()
-                            }
-                        }
-                        self.db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
-                        
-                        # Notifica i Digital Twin collegati
-                        if hasattr(self, 'dt_factory'):
-                            dts_with_dispenser = self._find_dts_with_dr("dispenser_medicine", dispenser_id)
-                            for dt_id in dts_with_dispenser:
-                                dt = self.dt_factory.get_dt_instance(dt_id)
-                                if dt:
-                                    door_service = dt.get_service("DoorEventService")
-                                    if door_service:
-                                        door_service.door_state_changed(dispenser_id, state, timestamp)
-                        
-                        print(f"Dispenser {dispenser_id}: porta {state} alle {timestamp.strftime('%H:%M:%S')}")
-                except Exception as e:
-                    print(f"Errore nella gestione evento porta: {e}")
-            
-            
-        except json.JSONDecodeError as e:
-            print(f"Errore nella decodifica del payload JSON: {e}")
-            print(f"Payload non valido: {msg.payload}")
-        except Exception as e:
-            print(f"Errore nella gestione del messaggio MQTT: {e}")
-
 
     
 
@@ -341,7 +296,7 @@ class MqttSubscriber:
                             # Passa sia db_service che dt_factory
                             emergency_service.db_service = self.db_service
                             emergency_service.dt_factory = self.dt_factory  # Aggiungi questa riga
-                            emergency_service.emergency_requested(device_id, dt_id, dt_name)
+                            emergency_service.execute(device_id, dt_id, dt_name)
                         else:
                             print(f"EmergencyRequestService non trovato nel DT {dt_id}")
                     else:

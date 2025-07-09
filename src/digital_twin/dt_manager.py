@@ -128,16 +128,6 @@ class DTManager:
                 ("DoorEventService", {
                     "notification_threshold": 30
                 }),
-                # FR-3: Supervisor Message Display
-                ("MessageDisplayService", {
-                    "display_modes": ["telegram", "app", "home_display"]
-                }),
-                # FR-4: Adherence Logging
-                ("AdherenceLoggingService", {
-                    "log_frequency": "real-time",
-                    "storage_duration": "90d"
-                }),
-                # FR-5: Irregularity Alert - RIMOSSO perché i servizi specifici gestiscono già le irregolarità
                 # FR-6: Emergency Help Request
                 ("EmergencyRequestService", {
                     "emergency_contacts": ["supervisor"],
@@ -149,16 +139,6 @@ class DTManager:
                     "humidity_range": [40, 60],
                     "air_quality_threshold": 50
                 }),
-                # FR-8: User & Supervisor Registration
-                ("ProfileManagementService", {
-                    "roles": ["user", "supervisor", "caregiver"],
-                    "authentication": "secure"
-                }),
-                # FR-9: Supervisor Remote Interaction
-                ("SupervisorInteractionService", {
-                    "allowed_actions": ["view", "modify", "emergency_override"],
-                    "access_level": "full"
-                })
             ]
             
             # Aggiungi i servizi uno alla volta e gestisci eventuali errori

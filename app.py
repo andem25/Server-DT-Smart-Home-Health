@@ -231,8 +231,6 @@ def main():
         app.config['SCHEDULER_SERVICE'] = scheduler_service
     
     except Exception as e:
-        # print(f"Error during service initialization: {repr(e)}", exc_info=True)
-        # Clean up resources before exiting
         if db_service and hasattr(db_service, 'is_connected') and db_service.is_connected():
             db_service.disconnect()
         if http_tunnel and public_url:
@@ -246,8 +244,6 @@ def main():
         app.run(host=SERVER_HOST, port=SERVER_PORT, debug=False, use_reloader=False)
         
     except KeyboardInterrupt:
-        
-
         # Shutdown Telegram application
         print("Shutting down Telegram application...")
         try:

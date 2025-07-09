@@ -13,13 +13,13 @@ class MedicationReminderService(BaseService):
         # Aggiungi questo dizionario per tenere traccia delle notifiche di dose mancata già inviate
         self.missed_dose_notifications = {}  # {dispenser_id: {"YYYY-MM-DD": True}}
 
-    def configure(self, config):
-        """Configurazione del servizio"""
-        self.reminder_interval = config.get("reminder_interval", 300)  # 5 minuti di default
-        self.notification_channels = config.get("channels", ["telegram"])
-        # Intervallo minimo tra notifiche consecutive (in secondi)
-        self.min_notification_interval = config.get("min_notification_interval", 900)  # 15 minuti default
-        return self
+    # def configure(self, config):
+    #     """Configurazione del servizio"""
+    #     self.reminder_interval = config.get("reminder_interval", 300)  # 5 minuti di default
+    #     self.notification_channels = config.get("channels", ["telegram"])
+    #     # Intervallo minimo tra notifiche consecutive (in secondi)
+    #     self.min_notification_interval = config.get("min_notification_interval", 900)  # 15 minuti default
+    #     return self
         
     def execute(self, dt_data, **kwargs):
         """Esegue il controllo delle assunzioni pianificate e invia promemoria se necessario"""
@@ -61,7 +61,7 @@ class MedicationReminderService(BaseService):
         
         # Controllo di sicurezza che il conteggio sia corretto
         if results["promemoria_inviati"] > 0:
-            print(f"[Scheduler] dio: Inviati {results['promemoria_inviati']} promemoria medicinali effettivi")
+            print(f"[Scheduler]: Inviati {results['promemoria_inviati']} promemoria medicinali effettivi")
         
         return results
         
@@ -115,13 +115,9 @@ class MedicationReminderService(BaseService):
     def _send_time_based_reminder(self, dispenser):
         """Invia un promemoria basato sull'orario configurato"""
         dispenser_id = dispenser.get("_id")
-        user_db_id = dispenser.get("user_db_id")
         medicine_name = dispenser.get("data", {}).get("medicine_name", "medicinale")
         
         # Dettagli orario
-        medicine_time = dispenser.get("data", {}).get("medicine_time", {})
-        start_time = medicine_time.get("start", "??:??")
-        end_time = medicine_time.get("end", "??:??")
         
         # Prepara il messaggio di notifica - CORREZIONE: aggiungiamo timestamp per rendere univoco
         now = datetime.now()
@@ -243,21 +239,6 @@ class MedicationReminderService(BaseService):
         # In un sistema reale, qui si invierebbe la notifica attraverso i canali configurati
         print(f"Invio promemoria: {message} a utente {user_db_id}")
     
-    def _register_reminder_sent(self, dispenser):
-        """Registra l'invio del promemoria nella Digital Replica del dispenser"""
-        dispenser_id = dispenser.get("_id")
-        
-        # Aggiunge un alert di tipo "reminder" nel dispenser
-        alert = {
-            "type": "reminder",
-            "timestamp": datetime.now().isoformat(),
-            "resolved": False
-        }
-        
-        # Qui dovresti aggiornare il documento nella collezione MongoDB
-        # usando db_service.update_dr("dispenser_medicine", dispenser_id, ...)
-        # Ma per semplicità qui stampiamo solo un messaggio
-        print(f"Registrato promemoria inviato per dispenser {dispenser_id}")
 
     def check_adherence_irregularities(self, dt_data, threshold=1):
         """Verifica l'aderenza ai farmaci e rileva irregolarità"""

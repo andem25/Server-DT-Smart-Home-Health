@@ -19,24 +19,8 @@ class EmergencyRequestService(BaseService):
         self.db_service = None
         return self
     
-    def execute(self, dt_data, **kwargs):
-        """Verifica lo stato delle richieste di emergenza attive"""
-        if 'db_service' in kwargs:
-            self.db_service = kwargs['db_service']
     
-        # Aggiungi questa riga per catturare dt_factory
-        if 'dt_factory' in kwargs:
-            self.dt_factory = kwargs['dt_factory']
-            
-        results = {"requests_active": 0, "notifications_sent": 0}
-        
-        # Recupera tutte le richieste di emergenza attive dal Digital Twin
-        # In una implementazione completa, si potrebbero controllare richieste di emergenza
-        # non gestite e inviarle nuovamente
-        
-        return results
-    
-    def emergency_requested(self, device_id, dt_id, dt_name, timestamp=None):
+    def execute(self, device_id, dt_id, dt_name, timestamp=None):
         """
         Gestisce una richiesta di emergenza da un dispositivo
         e invia notifiche ai contatti di emergenza
@@ -106,12 +90,6 @@ class EmergencyRequestService(BaseService):
         
     def _get_dt_supervisors(self, dt_id):
         """Recupera tutti i supervisori associati al Digital Twin"""
-        # In un caso reale, questa funzione dovrebbe interrogare il database
-        # per trovare tutti i supervisori associati al dt_id
-        
-        # Per ora restituiamo un array di esempio
-        # Nel sistema reale, questo dovrebbe essere recuperato dal database
         return [
             {"telegram_id": 157933243, "username": "supervisore_test"}
-            # Aggiungere altri supervisori se necessario
         ]
