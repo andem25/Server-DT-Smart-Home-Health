@@ -90,7 +90,6 @@ class DoorEventService(BaseService):
                     "timestamp": timestamp.isoformat(),
                     "regularity": event_regularity,
                     "reason": reason,
-                    "is_regular": is_regular
                 }
                 
                 # Memorizza l'evento nel database
@@ -104,7 +103,6 @@ class DoorEventService(BaseService):
             "timestamp": timestamp.isoformat() if timestamp else datetime.now().isoformat(),
             "regularity": "irregular",
             "reason": "unknown",
-            "is_regular": False
         }
     
     def is_event_regular(self, dispenser_data, timestamp, state):
@@ -223,7 +221,7 @@ class DoorEventService(BaseService):
             event_data = {
                 "state": state,
                 "timestamp": timestamp.isoformat(),
-                "is_regular": is_regular
+                "regularity": "regular" if is_regular else "irregular"
             }
             
             # Aggiungi l'evento alla lista degli eventi porta
