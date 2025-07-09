@@ -150,7 +150,64 @@ class EnvironmentalMonitoringService(BaseService):
                 print(f"Errore nel recupero dei limiti ambientali: {e}")
                 
         return limits
-        
+
+    def handle_environmental_data(self, db_service, dt_factory, device_id, env_data):
+        """
+        Gestisce i dati ambientali ricevuti da MQTT, estraendo temperatura e umidità.
+        """
+        print(f"Received environmental data for device {device_id}: {env_data}")
+
+        # Lista per contenere le nuove misurazioni formattate
+        measurements_to_push = []
+        # Usiamo un timestamp unico per questo "pacchetto" di dati
+        timestamp = datetime.now().isoformat()
+
+        # 1. Estrai e formatta la misurazione della temperatura
+        if "avg_temperature" in env_data:
+            temp_measurement = {
+                "type": "temperature",
+                "value": env_data["avg_temperature"],
+                "unit": "°C",
+                "timestamp": timestamp
+            }
+            measurements_to_push.append(temp_measurement)
+
+        # 2. Estrai e formatta la misurazione dell'umidità
+        if "avg_humidity" in env_data:
+            humidity_measurement = {
+                "type": "humidity",
+                "value": env_data["avg_humidity"],
+                "unit": "%",
+                "timestamp": timestamp
+            }
+            measurements_to_push.append(humidity_measurement)
+
+        # Se non abbiamo estratto dati validi, interrompiamo l'esecuzione
+        if not measurements_to_push:
+            print(f"Warning: No valid measurements found in data from device {device_id}: {env_data}")
+            return
+
+        # 3. Prepara l'operazione di aggiornamento per il database
+        # Usiamo $each per aggiungere tutti gli elementi della lista in una sola operazione
+        update_operation = {
+            "$push": {
+                "data.environmental_data": {
+                    "$each": measurements_to_push
+                }
+            }
+        }
+
+        # 4. Aggiorna il documento del dispenser nel database
+        db_service.update_dr("dispenser_medicine", device_id, update_operation)
+        print(f"Successfully updated device {device_id} with data: {measurements_to_push}")
+
+
+
+
+
+
+
+
     def set_environmental_limits(self, device_id: str, 
                                limit_type: str, 
                                min_value: float, 
