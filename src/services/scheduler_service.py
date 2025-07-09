@@ -82,21 +82,21 @@ class SchedulerService:
         
         except Exception as e:
             print(f"[Scheduler] Errore generale nell'esecuzione dei servizi: {e}")
-    
+
     def _execute_reminder_service(self, dt_instance, dt_name):
-        """Esegue specificamente il servizio di promemoria medicinali"""
+        """Esegue specificamente il servizio di promemoria medicinali (versione semplificata)."""
         try:
-            reminder_service = dt_instance.get_service("MedicationReminderService")
-            if reminder_service:
-                # Passa sia db_service che dt_factory all'esecuzione del servizio
-                result = dt_instance.execute_service("MedicationReminderService", 
-                                                    db_service=self.db_service,
-                                                    dt_factory=self.dt_factory)
+            # Controlla se il servizio esiste nel DT
+            if dt_instance.get_service("MedicationReminderService"):
+                # Chiama direttamente il metodo orchestratore del DT.
+                # Il DT ha già accesso ai suoi dati e servizi.
+                result = dt_instance.execute_medication_reminders()
+                
                 if result and result.get("promemoria_inviati", 0) > 0:
                     print(f"[Scheduler] {dt_name}: Inviati {result['promemoria_inviati']} promemoria medicinali")
         except Exception as e:
             print(f"[Scheduler] Errore nell'esecuzione del servizio di promemoria per {dt_name}: {e}")
-    
+
     def _execute_adherence_check_service(self, dt_instance, dt_name):
         """Esegue specificamente il controllo di aderenza per rilevare mancate assunzioni"""
         try:
@@ -131,10 +131,10 @@ class SchedulerService:
                     db_service=self.db_service, 
                     dt_factory=self.dt_factory
                 )
-                
+
                 # Logga l'esito dell'operazione
                 if result and len(result.get("door_alerts", [])) > 0:
                     print(f"[Scheduler] {dt_name}: Gestite {len(result['door_alerts'])} notifiche di porta aperta")
-                
+
         except Exception as e:
             print(f"[Scheduler] Errore nel controllo porte per {dt_name}: {e}")
