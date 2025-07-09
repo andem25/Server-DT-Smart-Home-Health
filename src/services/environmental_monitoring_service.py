@@ -1,6 +1,7 @@
 from src.services.base import BaseService
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
+from src.application.bot.notifications import send_environmental_alert
 
 class EnvironmentalMonitoringService(BaseService):
     """
@@ -66,61 +67,58 @@ class EnvironmentalMonitoringService(BaseService):
                 
         return None
         
-    def check_environmental_irregularities(self, dt_data: Dict[str, Any], 
+    def check_environmental_irregularities(self, dt_data: Dict[str, Any],
                                          temp_range: Optional[Tuple[float, float]] = None) -> List[Dict[str, Any]]:
-        """Verifica le condizioni ambientali"""
+        """
+        Verifica le condizioni ambientali dei sensori nel DT e genera allarmi se fuori range.
+        """
         alerts = []
+        dt = self.dt_factory.get_dt(self.dt_id)
+        if not dt:
+            return alerts
+
+        # Recupera l'intervallo di temperatura sicuro dalla configurazione del DT
+        min_temp = dt.get("safe_temperature_range", {}).get("min", 18.0)
+        max_temp = dt.get("safe_temperature_range", {}).get("max", 25.0)
         
-        # Se non viene fornito un range, usa i valori di default del servizio
-        min_temp, max_temp = temp_range if temp_range else (self.temperature_range[0], self.temperature_range[1])
-        
-        # Cerca sia sensori dedicati che dispenser con sensori integrati
-        env_sensors = []
-        
-        for dr in dt_data.get("digital_replicas", []):
-            if dr.get("type") == "environmental_sensor":
-                env_sensors.append(dr)
-            elif dr.get("type") == "dispenser_medicine" and dr.get("data", {}).get("environmental_data"):
-                env_sensors.append(dr)
+        # Override con parametri funzione se presenti
+        if temp_range:
+            min_temp, max_temp = temp_range
+
+        env_sensors = [dr for dr in dt.get("digital_resources", []) if dr.get("type") == "environmental_sensor"]
         
         for sensor in env_sensors:
-            # Ottieni le misurazioni
-            measures = []
-            if sensor.get("type") == "environmental_sensor":
-                measures = sensor.get("data", {}).get("measures", [])
-            else:  # dispenser
-                measures = sensor.get("data", {}).get("environmental_data", [])
-                
-            if not measures:
-                continue
-                
+            sensor_id = sensor.get("_id")
+            measures = self.db_service.get_measures(sensor_id)
+            
             # Trova l'ultima misura di temperatura
             temp_measures = [m for m in measures if m.get("type") == "temperature"]
             if temp_measures:
                 latest_temp = sorted(temp_measures, key=lambda x: x.get("timestamp"), reverse=True)[0]
                 temp_value = latest_temp.get("value")
                 
-                if temp_value < min_temp:
-                    alerts.append({
-                        "type": "low_temperature",
+                if temp_value is not None and (temp_value < min_temp or temp_value > max_temp):
+                    alert = {
+                        "type": "temperature_alert",
                         "sensor_id": sensor.get("_id"),
-                        "location": sensor.get("data", {}).get("location", "sconosciuta"),
                         "value": temp_value,
                         "unit": latest_temp.get("unit", "°C"),
                         "severity": "medium",
-                        "timestamp": datetime.now()
-                    })
-                elif temp_value > max_temp:
-                    alerts.append({
-                        "type": "high_temperature",
-                        "sensor_id": sensor.get("_id"),
-                        "location": sensor.get("data", {}).get("location", "sconosciuta"),
-                        "value": temp_value,
-                        "unit": latest_temp.get("unit", "°C"),
-                        "severity": "medium",
-                        "timestamp": datetime.now()
-                    })
-        
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    alerts.append(alert)
+                    # Invia la notifica di allarme
+                    send_environmental_alert(
+                        db_service=self.db_service,
+                        dt_factory=self.dt_factory,
+                        device_id=sensor_id,
+                        measure_type="temperatura",
+                        value=temp_value,
+                        unit="°C",
+                        min_value=min_temp,
+                        max_value=max_temp
+                    )
+
         return alerts
         
     def get_environmental_limits(self, device_id: str) -> Dict[str, Tuple[float, float]]:
