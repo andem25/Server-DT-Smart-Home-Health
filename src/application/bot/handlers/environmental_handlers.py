@@ -276,6 +276,27 @@ async def show_environmental_data_handler(update: Update, context: ContextTypes.
         traceback.print_exc()
         await update.message.reply_text(f"❌ Si è verificato un errore durante il recupero dei dati ambientali: {e}")
 
+def find_dts_with_dr(self, dr_type, dr_id):
+    """Trova tutti i Digital Twin che contengono una certa Digital Replica"""
+    try:
+        # Query diretta più semplice con il campo corretto
+        collection = self.db_service.db["digital_twins"]
+        query = {"digital_replicas": {"$elemMatch": {"id": dr_id, "type": dr_type}}}
+        matching_dts = []
+        
+        for dt in collection.find(query):
+            matching_dts.append(str(dt.get("_id")))
+        
+        print(f"DEBUG: Trovati {len(matching_dts)} DT con {dr_type}={dr_id}: {matching_dts}")
+        return matching_dts
+        
+    except Exception as e:
+        print(f"Errore nella ricerca dei DT con DR {dr_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
 async def set_environmental_limits_handler(update, context):
     """
     Imposta i limiti di temperatura o umidità per un dispenser specifico.
@@ -311,17 +332,12 @@ async def set_environmental_limits_handler(update, context):
         # Determina il campo da aggiornare e il nome per il messaggio
         update_field = "temperature_limits" if limit_type == "temp" else "humidity_limits"
         limit_name = "temperatura" if limit_type == "temp" else "umidità"
-
-        # --- INIZIO DELLA CORREZIONE CRUCIALE ---
-        # Costruisci l'operazione di aggiornamento per MongoDB usando la "dot notation".
-        # Questo aggiorna solo i campi specificati all'interno dell'oggetto 'data'.
         update_operation = {
             "$set": {
                 f"data.{update_field}": [min_value, max_value],
                 "metadata.updated_at": datetime.now().isoformat()
             }
         }
-        # --- FINE DELLA CORREZIONE CRUCIALE ---
 
         # Esegui l'aggiornamento sul database
         db_service.update_dr("dispenser_medicine", dispenser_id, update_operation)
@@ -330,8 +346,7 @@ async def set_environmental_limits_handler(update, context):
         try:
             dt_factory = context.application.bot_data.get('dt_factory')
             if dt_factory:
-                # La funzione _find_dts_with_dr deve essere definita nel tuo file handlers
-                dts_with_dispenser = _find_dts_with_dr(dt_factory, "dispenser_medicine", dispenser_id)
+                dts_with_dispenser = find_dts_with_dr(dt_factory, "dispenser_medicine", dispenser_id)
                 for dt_id in dts_with_dispenser:
                     dt_instance = dt_factory.get_dt_instance(dt_id)
                     if dt_instance:
@@ -344,7 +359,6 @@ async def set_environmental_limits_handler(update, context):
                             print(f"Servizio ambientale del DT {dt_id} aggiornato in memoria.")
         except Exception as e:
             print(f"ATTENZIONE: Errore nell'aggiornamento dei servizi DT in memoria: {e}")
-            # Non bloccare l'operazione se questo passaggio fallisce
 
         await update.message.reply_text(
             f"✅ Limiti di {limit_name} per il dispenser '{dispenser_id}' aggiornati con successo:\n"

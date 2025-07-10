@@ -9,7 +9,6 @@ class UserService:
         self.db_service = db_service
         self.dr_factory = DRFactory(".\\src\\virtualization\\templates\\user.yaml")
 
-    # --- MODIFIED METHOD ---
     def create_user(self, username: str, password: str, role: str = "supervisor", dt_id: str = None) -> str:
         """
         Crea un nuovo utente.
@@ -51,7 +50,6 @@ class UserService:
         saved_id = self.db_service.save_dr("user", user_dr)
         return user_dr.get('_id', saved_id)
 
-    # --- MODIFIED METHOD ---
     def verify_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
         """Verifica le credenziali dell'utente."""
         user_list = self.db_service.query_drs("user", {"data.username": username})

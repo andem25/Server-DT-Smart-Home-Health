@@ -54,7 +54,7 @@ schemas:
         items:
           type: object
           properties:
-            type: str  # missed_dose, low_battery, empty, door_open, env_alert
+            type: str  
             timestamp: datetime
             resolved: bool
   validations:

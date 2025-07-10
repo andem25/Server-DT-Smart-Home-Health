@@ -172,7 +172,7 @@ class DoorEventService(BaseService):
                 print(f"Dispenser {dispenser_id} non trovato nel database")
                 return
             
-            # Usa il nuovo metodo dell'interfaccia
+            # Usa il metodo dell'interfaccia
             event_details = self.handle_door_event(dispenser_id, state, timestamp)
             is_regular = event_details.get("is_regular", False)
             

@@ -24,7 +24,6 @@ async def create_dt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⏳ Creazione del Digital Twin '{dt_name}' in corso...")
 
     try:
-        # --- INIZIO MODIFICA CRUCIALE ---
         # Chiama il metodo corretto e completo del DTManager
         description = f"Smart Home Health DT di {update.effective_user.first_name}"
         dt_id = dt_manager.create_smart_home_health_dt(
@@ -32,7 +31,6 @@ async def create_dt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name=dt_name, 
             description=description
         )
-        # --- FINE MODIFICA CRUCIALE ---
         
         # Ora il DT è stato creato con TUTTI i servizi configurati in dt_manager.py
         dt_doc = dt_manager.dt_factory.get_dt(dt_id) # Usiamo il factory per ottenere il documento
@@ -110,7 +108,6 @@ async def show_dt_telegram_ids_handler(update: Update, context: ContextTypes.DEF
             await update.message.reply_text("❌ Errore interno: Database non disponibile.")
             return
         
-        # Debug: stampa l'ID utente per verificare che sia corretto
         print(f"DEBUG DT_IDS: Cerco Digital Twin per user_id={user_db_id}")
         
         # Usa direttamente il client MongoDB per accedere ai dati grezzi

@@ -19,7 +19,7 @@ class EmergencyRequestService(BaseService):
         self.db_service = None
         return self
     
-    # Nuovo metodo che separa le notifiche dall'aggiornamento dello stato
+    # metodo che separa le notifiche dall'aggiornamento dello stato
     def handle_emergency_notification(self, device_id, dt_id, dt_name):
         """
         Invia notifiche per una richiesta di emergenza
@@ -44,7 +44,6 @@ class EmergencyRequestService(BaseService):
         # Invia le notifiche
         return self._send_emergency_notification(device_id, dt_id, dt_name)
     
-    # Metodo legacy per retrocompatibilità
     def execute(self, device_id, dt_id, dt_name, timestamp=None):
         """
         Metodo legacy per retrocompatibilità

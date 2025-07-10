@@ -78,28 +78,6 @@ class DatabaseService:
         except Exception as e:
             raise Exception(f"Failed to query Digital Replicas: {str(e)}")
 
-    # def update_dr(self, dr_type: str, dr_id: str, update_data: Dict) -> None:
-    #     if not self.is_connected():
-    #         raise ConnectionError("Not connected to MongoDB")
-
-    #     try:
-    #         collection_name = self.schema_registry.get_collection_name(dr_type)
-
-    #         # Always update metadata.updated_at
-    #         if "metadata" not in update_data:
-    #             update_data["metadata"] = {}
-    #         update_data["metadata"]["updated_at"] = datetime.utcnow()
-
-    #         # Let SchemaRegistry handle validation through MongoDB schema
-    #         result = self.db[collection_name].update_one(
-    #             {"_id": dr_id}, {"$set": update_data}
-    #         )
-
-    #         if result.matched_count == 0:
-    #             raise ValueError(f"Digital Replica not found: {dr_id}")
-
-    #     except Exception as e:
-    #         raise Exception(f"Failed to update Digital Replica: {str(e)}")
 
 
     def update_dr(self, dr_type: str, dr_id: str, update_doc: Dict) -> None: # Rinominato update_data in update_doc per chiarezza
@@ -136,14 +114,9 @@ class DatabaseService:
             result = collection.update_one({"_id": dr_id}, update_doc)
 
             if result.matched_count == 0:
-                # Considera di loggare o sollevare un errore se il documento non viene trovato
-                # logger.warning(f"Digital Replica not found for update: {dr_id}")
                 raise ValueError(f"Digital Replica not found: {dr_id}")
-            # Puoi controllare result.modified_count se l'aggiornamento ha effettivamente cambiato qualcosa
 
         except Exception as e:
-            # Rilancia un'eccezione più informativa
-            # logger.error(f"Failed to update DR {dr_id}: {e}", exc_info=True)
             raise RuntimeError(f"Failed to update Digital Replica: {e}, full error: {getattr(e, 'details', '')}") from e
 
 

@@ -154,12 +154,8 @@ class EnvironmentalMonitoringService(BaseService):
         Gestisce i dati ambientali ricevuti da MQTT, li salva, controlla i limiti
         e invia notifiche in caso di allarme.
         """
-        # --- INIZIO DELLA CORREZIONE ---
-        # Assegna i servizi passati come parametri alle proprietà dell'istanza.
-        # Questa è la riga mancante che risolve il problema.
         self.db_service = db_service
         self.dt_factory = dt_factory
-        # --- FINE DELLA CORREZIONE ---
 
         print(f"Received environmental data for device {device_id}: {env_data}")
 

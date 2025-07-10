@@ -443,7 +443,7 @@ def send_adherence_notification(db_service, dt_factory, device_id, message_type,
                 f"📱 Dispenser: *{dispenser_name}*"
             )
     
-        # MODIFICATO: Raccogli tutti gli ID Telegram da tutti i DT dell'utente
+        # Raccogli tutti gli ID Telegram da tutti i DT dell'utente
         all_telegram_ids = set()
         
         # Recupera tutti i DT dell'utente per ottenere gli ID Telegram

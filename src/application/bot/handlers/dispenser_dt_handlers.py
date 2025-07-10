@@ -148,7 +148,6 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
         # Componi il messaggio con i dispositivi
         msg = f"📱 Dispositivi collegati al Digital Twin '{dt.get('name')}':\n\n"
         
-        # CORREZIONE: Usa digital_replicas invece di connected_devices
         for idx, device in enumerate(digital_replicas, 1):
             device_id = device.get('id', 'ID sconosciuto')
             device_type = device.get('type', 'Tipo sconosciuto')
@@ -222,10 +221,7 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
     db_service = context.application.bot_data['db_service']
 
     try:
-        # Aggiungi debugging per vedere cosa contiene il database
         print(f"DEBUG: Cercando DT per utente {user_db_id}")
-        
-        # Accedi direttamente alla collezione MongoDB
         dt_collection = db_service.db["digital_twins"]
         
         # Cerca i DT dell'utente
@@ -239,7 +235,6 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
         }))
         
         if not user_dt_docs:
-            # Prova anche con l'altra variante (se user_db_id è una stringa, prova come ObjectId)
             from bson import ObjectId
             try:
                 obj_id = ObjectId(user_db_id) if isinstance(user_db_id, str) else str(user_db_id)
