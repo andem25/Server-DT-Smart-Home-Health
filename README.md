@@ -2,6 +2,9 @@
 
 Un framework flessibile ed estensibile per la creazione di Digital Twin dedicati alla salute domestica intelligente. Il sistema consente di virtualizzare dispositivi fisici (es. dispenser medicinali), monitorare parametri ambientali, gestire promemoria terapeutici, notifiche di emergenza e molto altro, tramite una piattaforma modulare e multiutente.
 
+<img width="1200" height="720" alt="image" src="https://github.com/user-attachments/assets/4dcceb02-4633-4f9b-ac6f-7544f8e6c321" />
+
+
 ---
 
 ## Architettura a Livelli
@@ -20,6 +23,9 @@ Il sistema è progettato secondo una architettura a livelli per garantire modula
 ```
 
 ---
+
+<img width="1454" height="1097" alt="image" src="https://github.com/user-attachments/assets/0d44e4e1-e2e8-4a1a-93c4-237323f02486" />
+
 
 ## Funzionalità Principali
 
