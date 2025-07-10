@@ -1,164 +1,123 @@
-# Digital Twin System
+# Digital Twin System – Smart Home Health
 
-A flexible and extensible Digital Twin framework designed to create virtual representations of physical entities. This system provides a comprehensive architecture for building, managing, and interacting with Digital Twins across various domains.
+Un framework flessibile ed estensibile per la creazione di Digital Twin dedicati alla salute domestica intelligente. Il sistema consente di virtualizzare dispositivi fisici (es. dispenser medicinali), monitorare parametri ambientali, gestire promemoria terapeutici, notifiche di emergenza e molto altro, tramite una piattaforma modulare e multiutente.
 
-## System Architecture
+---
 
-The system is built on a layered architecture that promotes separation of concerns and modularity:
+## Architettura a Livelli
+
+Il sistema è progettato secondo una architettura a livelli per garantire modularità e separazione delle responsabilità:
 
 ```
-├── Application Layer (Interface & APIs)
-│
+├── Application Layer (Interfacce & API)
+│   └─ Bot Telegram, REST API, Visualizzazione dati
 ├── Digital Twin Layer (Core Logic)
-│
+│   └─ Gestione ciclo di vita DT, orchestrazione servizi
 ├── Services Layer (Business Logic)
-│
+│   └─ Servizi plug-in: promemoria, monitoraggio, notifiche
 └── Virtualization Layer (Digital Replicas)
+    └─ Gestione repliche digitali, validazione schemi
 ```
 
-### Key Components
+---
 
-1. **Virtualization Layer**
-   - Creates and manages Digital Replicas
-   - Handles schema validation
-   - Manages entity templates
-   - Ensures data consistency
+## Funzionalità Principali
 
-2. **Services Layer**
-   - Provides data processing capabilities
-   - Implements analytics and monitoring
-   - Handles data persistence
-   - Enables service extensibility
+- **Gestione Digital Twin**: Creazione, configurazione e cancellazione di Digital Twin per ogni utente/smart home.
+- **Repliche Digitali**: Ogni dispositivo fisico (es. dispenser) ha una rappresentazione digitale con stato, eventi e dati storici.
+- **Servizi Modulari**:
+  - **Promemoria Terapie**: Notifiche automatiche per assunzione farmaci, verifica aderenza, gestione dosi mancate.
+  - **Monitoraggio Ambientale**: Rilevamento temperatura e umidità, soglie personalizzabili, allarmi in tempo reale.
+  - **Monitoraggio Porte**: Rilevamento apertura/chiusura dispenser, verifica regolarità rispetto agli orari configurati, notifiche di irregolarità.
+  - **Gestione Emergenze**: Pulsante SOS, invio richieste di aiuto e notifiche ai supervisori.
+- **Notifiche Multi-canale**: Integrazione con Telegram Bot per notifiche push, messaggi personalizzati e gestione utenti.
+- **Visualizzazione Dati**: Grafici automatici di eventi e dati ambientali direttamente su Telegram.
+- **Gestione Utenti e Ruoli**: Supervisori e pazienti, login sicuro, gestione multiutente.
+- **Configurazione Dinamica**: Limiti ambientali, orari terapie, dispositivi e servizi configurabili via bot.
+- **Scheduler Integrato**: Esecuzione periodica di controlli e servizi DT.
+- **Integrazione MQTT**: Comunicazione real-time con dispositivi fisici tramite broker MQTT (HiveMQ Cloud).
 
-3. **Digital Twin Layer**
-   - Manages Digital Twin lifecycle
-   - Orchestrates services
-   - Coordinates data flow
+---
 
-4. **Application Layer**
-   - Exposes REST APIs
-   - Provides visualization tools
-   - Manages user interactions
-   - Handles external integrations
+## Comandi Principali (Telegram Bot)
 
-## Getting Started
+- `/start`, `/help` – Avvio e guida dettagliata
+- `/register`, `/login`, `/logout`, `/status` – Gestione account
+- `/create_smart_home <nome>` – Crea una nuova casa smart (DT)
+- `/list_smart_homes` – Elenca le case smart dell’utente
+- `/add_dispenser <id> <nome>` – Registra un nuovo dispenser fisico
+- `/my_dispensers` – Elenca i dispenser associati
+- `/set_dispenser_time <id> <inizio> <fine>` – Imposta orari terapia
+- `/delete_dispenser <id>` – Rimuove un dispenser
+- `/link_dispenser <dt_id> <dispenser_id>` – Collega dispenser a DT
+- `/environment_data <id> [n|inizio fine]` – Visualizza dati ambientali
+- `/set_environment_limits <id> <tipo> <min> <max>` – Imposta soglie allarmi
+- `/door_history <id> [n|inizio fine]` – Cronologia eventi porta
+- `/check_smart_home_alerts` – Controlla tutte le irregolarità attive
+- `/send_dispenser_message <id> <msg>` – Invia messaggio al display dispenser
 
-### Prerequisites
-- Python 3.8+
-- Pymongo 4.10+
-- pyYAML 6.0+
+---
 
-### Environment Setup
-```bash
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+## Tecnologie Utilizzate
 
+- **Python 3.8+**
+- **Flask** – Web server e webhook
+- **python-telegram-bot** – Bot Telegram
+- **Pymongo** – Database MongoDB
+- **pyYAML** – Gestione template e schemi
+- **MQTT (HiveMQ Cloud)** – Comunicazione IoT
+- **ngrok** – Tunneling per webhook pubblici
+- **Matplotlib** – Generazione grafici
 
-### Installation and Configuration
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/digital-twin-system.git
+---
 
-# Install dependencies
-pip install -r requirements.txt
+## Avvio Rapido
 
-# Configure Database
-# Create a config/database.yaml file:
+1. **Prerequisiti**
+   - Python 3.8+, MongoDB, HiveMQ account, Telegram Bot Token
 
-```yaml
-database:
-  connection:
-    host: "localhost"
-    port: 27017
-    username: ""  # Optional: for authenticated connections
-    password: ""  # Optional: for authenticated connections
-  settings:
-    name: "digital_twin_db"  # Your database name
-    auth_source: "admin"     # Optional: authentication database
-```
-### Basic Usage
-```
+2. **Setup Ambiente**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-1. **Define Your Entity Template**
-```yaml
-# templates/my_entity.yaml
-type: entity
-properties:
-  required:
-    - name
-    - description
-  optional:
-    - location
-    - status
-measurements:
-  - name: temperature
-    type: float
-    unit: celsius
-  - name: humidity
-    type: float
-    unit: percentage
-```
+3. **Configurazione**
+   - Compila `.env` con credenziali MQTT, Telegram, ecc.
+   - Configura `config/database.yaml` con i parametri MongoDB
 
-2. **Create a Digital Twin**
-```python
-from src.digital_twin.core import DigitalTwin
-from src.services.analytics import AnalyticsService
+4. **Avvio**
+   ```bash
+   python app.py
+   ```
 
-# Initialize Digital Twin
-dt = DigitalTwin()
+---
 
-# Add services
-analytics = AnalyticsService()
-dt.add_service(analytics)
+## Estendibilità
 
-# Create Digital Replica
-dr_data = {
-    "name": "Entity-001",
-    "description": "My first entity",
-    "measurements": []
-}
-dt.create_digital_replica("my_entity", dr_data)
-```
+- **Aggiunta Servizi**: Implementa una nuova classe in `src/services/`, eredita da `BaseService`, registra il servizio nel DT.
+- **Nuovi Tipi di Entità**: Definisci uno schema YAML in `src/virtualization/templates/`, registra tramite `SchemaRegistry`.
+- **API REST**: Endpoints per gestione DT e DR (vedi sezione API nel README originale).
 
-3. **Run the Application**
-```bash
-python app.py
-```
+---
 
-## API Endpoints
+## Struttura Principale del Progetto
 
-The system exposes RESTful APIs for Digital Twin management:
+- `app.py` – Entry point, avvio server e bot
+- `src/application/` – Bot, API, visualizzazione
+- `src/digital_twin/` – Gestione Digital Twin e factory
+- `src/services/` – Servizi modulari (monitoraggio, notifiche, ecc.)
+- `src/virtualization/` – Gestione repliche digitali e template
+- `firmware_device/` – Firmware Arduino/ESP per dispenser fisici
+- `config/` – Configurazioni e parametri ambiente
 
-```
-POST   /api/dt          # Create Digital Twin
-GET    /api/dt/{id}     # Get Digital Twin
-POST   /api/dr          # Create Digital Replica
-GET    /api/dr/{id}     # Get Digital Replica
-```
+---
 
-## Extending the System
+## Note
 
-### Adding New Services
+- Il sistema è progettato per essere multiutente e multi-dispositivo.
+- Tutte le operazioni critiche sono tracciate e gestite con logging e notifiche.
+- La documentazione dettagliata per estendere servizi e template si trova in `src/services/README.md` e `src/virtualization/templates/README.md`.
 
-1. Create a new service class:
-```python
-from src.services.base import BaseService
-
-class MyService(BaseService):
-    def execute(self, data):
-        # Implement service logic
-        pass
-```
-
-2. Register the service:
-```python
-dt.add_service(MyService())
-```
-
-### Creating Custom Entity Types
-
-1. Define schema in YAML format
-2. Register schema with SchemaRegistry
-3. Use template for Digital Replica creation
-
+---
