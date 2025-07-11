@@ -124,6 +124,5 @@ Il sistema è progettato secondo una architettura a livelli per garantire modula
 
 - Il sistema è progettato per essere multiutente e multi-dispositivo.
 - Tutte le operazioni critiche sono tracciate e gestite con logging e notifiche.
-- La documentazione dettagliata per estendere servizi e template si trova in `src/services/README.md` e `src/virtualization/templates/README.md`.
 
 ---
