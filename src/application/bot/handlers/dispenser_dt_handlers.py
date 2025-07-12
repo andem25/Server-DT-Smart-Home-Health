@@ -210,7 +210,7 @@ async def list_dt_devices_handler(update: Update, context: ContextTypes.DEFAULT_
 async def check_irregularities_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Esegue il controllo delle irregolarità su TUTTI i DT dell'utente 
-    e notifica i risultati - versione senza IrregularityAlertService
+    e notifica i risultati - versione che mostra tutti gli alert salvati nel database
     """
     user_db_id = context.user_data.get('user_db_id')
     if not user_db_id:
@@ -221,35 +221,16 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
     db_service = context.application.bot_data['db_service']
 
     try:
-        print(f"DEBUG: Cercando DT per utente {user_db_id}")
         dt_collection = db_service.db["digital_twins"]
-        
-        # Cerca i DT dell'utente
         user_dt_docs = list(dt_collection.find({
             "$or": [
-                {"metadata.user_id": user_db_id},   # Posizione standard
-                {"user_id": user_db_id},            # Direttamente nel documento
-                {"user_db_id": user_db_id},         # Nome alternativo
-                {"owner": user_db_id}               # Altro nome possibile
+                {"metadata.user_id": user_db_id},
+                {"user_id": user_db_id},
+                {"user_db_id": user_db_id},
+                {"owner": user_db_id}
             ]
         }))
-        
-        if not user_dt_docs:
-            from bson import ObjectId
-            try:
-                obj_id = ObjectId(user_db_id) if isinstance(user_db_id, str) else str(user_db_id)
-                user_dt_docs = list(dt_collection.find({
-                    "$or": [
-                        {"metadata.user_id": obj_id},
-                        {"user_id": obj_id},
-                        {"user_db_id": obj_id},
-                        {"owner": obj_id}
-                    ]
-                }))
-            except:
-                pass
-            
-        # Se ancora non abbiamo trovato nulla, mostra il messaggio
+
         if not user_dt_docs:
             await update.message.reply_text("ℹ️ Non hai Digital Twin registrati. Creane uno con `/create_smart_home <nome>`.", parse_mode="Markdown")
             return
@@ -261,81 +242,35 @@ async def check_irregularities_handler(update: Update, context: ContextTypes.DEF
         for dt_doc in user_dt_docs:
             dt_id = str(dt_doc["_id"])
             dt_name = dt_doc.get("name", "DT senza nome")
-            
-            dt_instance = dt_factory.get_dt_instance(dt_id)
-            if not dt_instance:
-                all_alerts_messages.append(f"⚠️ Errore nel caricamento del DT '{dt_name}'.")
-                continue
+            dt_alert_message = f"🚨 *Alert per DT '{dt_name}':*\n"
 
-            # Raccogliamo irregolarità direttamente dai servizi
-            dt_data = dt_instance.get_dt_data()
-            alerts = {
-                "medication_alerts": [],
-                "door_alerts": [],
-                "environmental_alerts": []
-            }
-            
-            # Verifica irregolarità nei medicinali
-            medication_service = dt_instance.get_service("MedicationReminderService")
-            if medication_service:
-                # Passa le dipendenze necessarie
-                medication_service.db_service = db_service
-                medication_service.dt_factory = dt_factory
-                alerts["medication_alerts"] = medication_service.check_adherence_irregularities(dt_data)
-            
-            # Verifica irregolarità nelle porte
-            door_service = dt_instance.get_service("DoorEventService")
-            if door_service:
-                # Passa le dipendenze necessarie
-                door_service.db_service = db_service
-                door_service.dt_factory = dt_factory
-                alerts["door_alerts"] = door_service.check_door_irregularities(dt_data)
-            
-            # Verifica irregolarità ambientali
-            env_service = dt_instance.get_service("EnvironmentalMonitoringService")
-            if env_service:
-                # Passa le dipendenze necessarie
-                env_service.db_service = db_service
-                env_service.dt_factory = dt_factory
-                alerts["environmental_alerts"] = env_service.check_environmental_irregularities(dt_data)
-            
-            # Ora procediamo come prima con gli alert raccolti
-            if any(alert_list for alert_list in alerts.values()):
-                dt_alert_message = f"🚨 *Alert per DT '{dt_name}':*\n"
-                
-                # Controlla alert per porte aperte troppo a lungo
-                door_alerts = alerts.get("door_alerts", [])
-                if door_alerts:
-                    dt_alert_message += "  🚪 *Porte aperte da troppo tempo:*\n"
-                    for alert in door_alerts:
-                        dt_alert_message += f"    - Dispenser: *{alert['dispenser_name']}* ({alert['minutes_open']} min)\n"
-                
-                # Controlla alert per irregolarità nell'assunzione dei medicinali
-                medication_alerts = alerts.get("medication_alerts", [])
-                if medication_alerts:
-                    dt_alert_message += "  💊 *Irregolarità assunzione medicinali:*\n"
-                    for alert in medication_alerts:
-                        dt_alert_message += f"    - Dispenser: *{alert['dispenser_name']}* (Giorni mancanti: {alert.get('missing_days', '?')})\n"
-                
-                # Controlla alert per condizioni ambientali anomale
-                environmental_alerts = alerts.get("environmental_alerts", [])
-                if environmental_alerts:
-                    dt_alert_message += "  🌡️ *Condizioni ambientali anomale:*\n"
-                    for alert in environmental_alerts:
-                        tipo = "temperatura" if alert.get("type") == "temperature" else "umidità" if alert.get("type") == "humidity" else alert.get("type", "sconosciuto")
-                        dt_alert_message += f"    - {tipo.capitalize()}: *{alert.get('value', '?')}{alert.get('unit', '')}* (Sensore: {alert.get('location', 'sconosciuto')})\n"
-                
-                # Controlla emergenze attive nei dispenser collegati
-                dispenser_replicas = [r for r in dt_doc.get("digital_replicas", []) if r.get("type") == "dispenser_medicine"]
-                for replica in dispenser_replicas:
+            # 1. Alert generali del DT
+            dt_alerts = dt_doc.get("alerts", [])
+            if dt_alerts:
+                dt_alert_message += "  ⚠️ *Alert generali:*\n"
+                for alert in dt_alerts:
+                    dt_alert_message += f"    - {alert}\n"
+
+            # 2. Alert nelle digital replicas (es. dispenser)
+            digital_replicas = dt_doc.get("digital_replicas", [])
+            for replica in digital_replicas:
+                if replica.get("type") == "dispenser_medicine":
                     dispenser_id = replica.get("id")
-                    if dispenser_id:
-                        dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
-                        if dispenser and dispenser.get("data", {}).get("emergency_active", False):
-                            dt_alert_message += "  🚑 *Emergenze attive:*\n"
+                    dispenser = db_service.get_dr("dispenser_medicine", dispenser_id)
+                    if dispenser:
+                        # Alert specifici del dispenser
+                        dispenser_alerts = dispenser.get("data", {}).get("alerts", [])
+                        if dispenser_alerts:
                             dispenser_name = dispenser.get("data", {}).get("name", "Dispenser sconosciuto")
-                            dt_alert_message += f"    - Dispenser: *{dispenser_name}* (Richiesta emergenza attiva)\n"
-                
+                            dt_alert_message += f"  💊 *Alert dispenser '{dispenser_name}':*\n"
+                            for alert in dispenser_alerts:
+                                dt_alert_message += f"    - {alert}\n"
+                        # Alert emergenza attiva
+                        if dispenser.get("data", {}).get("emergency_active", False):
+                            dt_alert_message += f"  🚑 *Emergenza attiva su '{dispenser.get('data', {}).get('name', dispenser_id)}'*\n"
+
+            # Solo se ci sono alert, aggiungi il messaggio
+            if dt_alert_message.strip() != f"🚨 *Alert per DT '{dt_name}':*":
                 all_alerts_messages.append(dt_alert_message)
 
         if not all_alerts_messages:
