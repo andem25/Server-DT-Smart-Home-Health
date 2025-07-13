@@ -2,7 +2,7 @@
 
 Un framework flessibile ed estensibile per la creazione di Digital Twin dedicati alla salute domestica intelligente. Il sistema consente di virtualizzare dispositivi fisici (es. dispenser medicinali), monitorare parametri ambientali, gestire promemoria terapeutici, notifiche di emergenza e molto altro, tramite una piattaforma modulare e multiutente.
 
-<img width="1200" height="720" alt="image" src="https://github.com/user-attachments/assets/4dcceb02-4633-4f9b-ac6f-7544f8e6c321" />
+<img width="1000" height="620" alt="image" src="https://github.com/user-attachments/assets/4dcceb02-4633-4f9b-ac6f-7544f8e6c321" />
 
 
 ---
@@ -119,6 +119,30 @@ Il sistema è progettato secondo una architettura a livelli per garantire modula
 - `config/` – Configurazioni e parametri ambiente
 
 ---
+## Schema elettrico dispositivo
+I componenti del sistema digitale del sistema sono:
+* Microcontrollore Wi-Fi: NodeMCU v2 (ESP8266 @ 80MHz, 4MB flash) – gestisce logica locale e comunicazione.
+* Sensore temperatura/umidità: DHT11 (collegato al pin D6 del NodeMCU) –
+fornisce T e RH ambientali, alimentato a 3.3V.
+* Sensore stato sportello: Reed switch magnetico NC – collegato al pin D7 e a
++3.3V (con resistenza pull-down 10 kΩ a GND) in configurazione da rilevare LOGIC
+HIGH quando sportello chiuso (magnete vicino, contatto chiuso).
+* Display LCD: Modulo LCD 16x2 alfanumerico, con interfaccia I2C (PCF8574)
+– collegato a SDA (D2) e SCL (D1) del NodeMCU, alimentato a 5V (il PCF8574
+opera con livelli 5V ma accetta input 3.3V come dall’ESP).
+* Buzzer piezoelettrico attivo: collegato al pin D5 (NOTIFICATION_PIN) e
+GND. Il pin D5 pilotato HIGH emette un suono (buzzer attivo a 3.3V).
+* LED rosso: collegato anch’esso al pin D5 (in parallelo al buzzer, con resistenza
+limitatrice da 220 Ω) – si illumina quando D5 è HIGH. (In alternativa, avremmo
+potuto usare il LED blu onboard del NodeMCU sul pin D0, ma si è preferito un
+LED esterno di colore rosso più visibile).
+* Pulsante “Conferma”: pulsante normally aperto collegato tra il pin D0 e +3.3V,
+con resistenza pull-down 10 kΩ verso GND – fornisce un impulso HIGH quando
+premuto. (Nel firmware chiamato AUTH_BUTTON).
+
+Lo schema elettrico del dispositivo è il seguente:
+![Immagine WhatsApp 2025-07-07 ore 18 15 34_d6883059](https://github.com/user-attachments/assets/8e2b94d6-1d03-4156-b2be-afd6124042d4)
+
 
 ## Note
 
